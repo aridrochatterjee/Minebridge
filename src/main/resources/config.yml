@@ -1,0 +1,14 @@
+discord:
+  # Prefer setting MINEBRIDGE_BOT_TOKEN as an environment variable.
+  bot-token: "PUT_YOUR_BOT_TOKEN_HERE"
+  channel-id: "PUT_YOUR_CHANNEL_ID_HERE"
+
+messages:
+  minecraft-to-discord: "**{player}**: {message}"
+  discord-to-minecraft: "&9[Discord] &f{player}: {message}"
+  player-join: "🟢 **{player}** joined the server."
+  player-leave: "🔴 **{player}** left the server."
+
+features:
+  chat-relay: true
+  join-leave-notifications: true
