@@ -1,7 +1,7 @@
 package com.minebridge.listener;
 
-import com.minebridge.config.ConfigManager;
 import com.minebridge.discord.DiscordService;
+import com.minebridge.config.ConfigManager;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;

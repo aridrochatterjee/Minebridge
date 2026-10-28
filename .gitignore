@@ -37,3 +37,6 @@ logs/
 
 # Local configuration containing secrets
 config-local.yml
+
+.claude/
+backups/

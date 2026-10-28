@@ -9,11 +9,11 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 
 import java.util.List;
+import java.util.Locale;
 
 public final class MineBridgeCommand implements CommandExecutor, TabCompleter {
 
     private final MineBridgePlugin plugin;
-    private final ConfigManager config;
     private final DiscordService discord;
 
     public MineBridgeCommand(
@@ -21,7 +21,6 @@ public final class MineBridgeCommand implements CommandExecutor, TabCompleter {
             ConfigManager config,
             DiscordService discord) {
         this.plugin = plugin;
-        this.config = config;
         this.discord = discord;
     }
 
@@ -30,6 +29,10 @@ public final class MineBridgeCommand implements CommandExecutor, TabCompleter {
             CommandSender sender, Command command, String label, String[] args) {
 
         if (args.length == 0 || args[0].equalsIgnoreCase("help")) {
+            if (args.length > 1) {
+                sender.sendMessage("§cUsage: /minebridge <help|status|reload>");
+                return true;
+            }
             sender.sendMessage("§bMineBridge §7Commands:");
             sender.sendMessage("§f/minebridge status §7- Check Discord connection");
             sender.sendMessage("§f/minebridge reload §7- Reload configuration");
@@ -37,19 +40,29 @@ public final class MineBridgeCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args[0].equalsIgnoreCase("status")) {
+            if (args.length > 1) {
+                sender.sendMessage("§cUsage: /minebridge status");
+                return true;
+            }
+            // Never expose the bot token — only report connection state.
             sender.sendMessage("§bMineBridge §7Discord connected: "
                     + (discord.isConnected() ? "§aYes" : "§cNo"));
             return true;
         }
 
         if (args[0].equalsIgnoreCase("reload")) {
+            if (args.length > 1) {
+                sender.sendMessage("§cUsage: /minebridge reload");
+                return true;
+            }
             if (!sender.hasPermission("minebridge.admin")) {
                 sender.sendMessage("§cYou don't have permission.");
                 return true;
             }
 
             plugin.reloadMineBridge();
-            sender.sendMessage("§aMineBridge configuration reloaded.");
+            sender.sendMessage(
+                    "§aMineBridge configuration reloaded; Discord reconnection started.");
             return true;
         }
 
@@ -62,7 +75,9 @@ public final class MineBridgeCommand implements CommandExecutor, TabCompleter {
             CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             return List.of("help", "status", "reload").stream()
-                    .filter(value -> value.startsWith(args[0].toLowerCase()))
+                    .filter(value -> !value.equals("reload")
+                            || sender.hasPermission("minebridge.admin"))
+                    .filter(value -> value.startsWith(args[0].toLowerCase(Locale.ROOT)))
                     .toList();
         }
         return List.of();

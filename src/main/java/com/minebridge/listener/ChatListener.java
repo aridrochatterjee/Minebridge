@@ -31,6 +31,7 @@ public final class ChatListener implements Listener {
         String player = event.getPlayer().getName();
         String message = event.getMessage();
 
+        // Queue the message for async sending — never blocks the main thread.
         String template = config.message(
                 "messages.minecraft-to-discord", "**{player}**: {message}");
 

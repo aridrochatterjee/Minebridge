@@ -1,3 +1,4 @@
+
 plugins {
     id 'java'
     id 'com.gradleup.shadow' version '8.3.6'
@@ -8,6 +9,7 @@ version = '1.0.0'
 
 repositories {
     mavenCentral()
+
     maven {
         url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/'
     }
@@ -16,6 +18,7 @@ repositories {
 dependencies {
     compileOnly 'org.spigotmc:spigot-api:1.20.6-R0.1-SNAPSHOT'
     implementation 'net.dv8tion:JDA:5.6.1'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 }
 
 java {
@@ -35,6 +38,10 @@ tasks.jar {
 
 tasks.shadowJar {
     archiveClassifier = ''
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 tasks.build {

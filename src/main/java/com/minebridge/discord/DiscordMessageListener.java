@@ -2,35 +2,41 @@ package com.minebridge.discord;
 
 import com.minebridge.MineBridgePlugin;
 import com.minebridge.config.ConfigManager;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
 public final class DiscordMessageListener extends ListenerAdapter {
 
     private final MineBridgePlugin plugin;
-    private final DiscordService discord;
     private final ConfigManager config;
 
     public DiscordMessageListener(
-            MineBridgePlugin plugin, DiscordService discord, ConfigManager config) {
+            MineBridgePlugin plugin, ConfigManager config) {
         this.plugin = plugin;
-        this.discord = discord;
         this.config = config;
     }
 
     @Override
     public void onMessageReceived(MessageReceivedEvent event) {
-        if (!config.chatEnabled()
-                || event.getAuthor().isBot()
-                || event.isWebhookMessage()
-                || !event.isFromGuild()
-                || !event.getChannel().getId().equals(config.getChannelId())) {
+        if (!DiscordMessageFilter.shouldRelay(
+                config.chatEnabled(),
+                event.getAuthor().isBot(),
+                event.isWebhookMessage(),
+                event.isFromGuild(),
+                event.getChannel().getId(),
+                config.getChannelId())) {
             return;
         }
 
-        String content = event.getMessage().getContentDisplay().trim();
+        String content = DiscordMessageFilter.sanitizeIncoming(
+                event.getMessage().getContentDisplay());
         if (content.isEmpty()) {
+            return;
+        }
+
+        String player = DiscordMessageFilter.sanitizeIncoming(
+                event.getAuthor().getEffectiveName());
+        if (player.isEmpty()) {
             return;
         }
 
@@ -38,11 +44,14 @@ public final class DiscordMessageListener extends ListenerAdapter {
                 "messages.discord-to-minecraft",
                 "&9[Discord] &f{player}: {message}");
 
-        String formatted = config.color(template
-                .replace("{player}", event.getAuthor().getEffectiveName())
-                .replace("{message}", content));
+        String formatted = config.color(template)
+                .replace("{player}", player)
+                .replace("{message}", content);
 
-        plugin.getServer().getScheduler().runTask(plugin,
-                () -> plugin.getServer().broadcastMessage(formatted));
+        if (plugin.isEnabled()) {
+            plugin.getServer().getScheduler().runTask(plugin,
+                    () -> plugin.getServer().broadcastMessage(formatted));
+        }
     }
+
 }

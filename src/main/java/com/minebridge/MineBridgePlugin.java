@@ -20,9 +20,11 @@ public final class MineBridgePlugin extends JavaPlugin {
         configManager = new ConfigManager(this);
         discordService = new DiscordService(this, configManager);
 
-        if (!discordService.start()) {
-            getLogger().warning("Discord bridge is disabled. Check config.yml.");
-        }
+        getServer().getScheduler().runTaskAsynchronously(
+                this, discordService::start);
+
+        getServer().getScheduler().runTaskTimerAsynchronously(
+                this, discordService::processOutgoing, 20L, 5L);
 
         getServer().getPluginManager().registerEvents(
                 new ChatListener(this, discordService, configManager), this);
@@ -53,7 +55,8 @@ public final class MineBridgePlugin extends JavaPlugin {
     public void reloadMineBridge() {
         reloadConfig();
         configManager.reload();
-        discordService.restart();
+        getServer().getScheduler().runTaskAsynchronously(
+                this, discordService::reload);
     }
 
     public DiscordService getDiscordService() {
