@@ -3,6 +3,8 @@ package com.minebridge.config;
 import com.minebridge.MineBridgePlugin;
 import org.bukkit.ChatColor;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public final class ConfigManager {
@@ -72,6 +74,25 @@ public final class ConfigManager {
 
     public static boolean isValidChannelId(String channelId) {
         return channelId != null && channelId.matches("\\d{17,20}");
+    }
+
+    public List<String> validationErrors() {
+        return validateConfiguration(getBotToken(), getChannelId());
+    }
+
+    public static List<String> validateConfiguration(String token, String channelId) {
+        List<String> errors = new ArrayList<>();
+        if (!isValidBotToken(token)) {
+            errors.add(
+                    "Discord bot token is missing or invalid; set MINEBRIDGE_BOT_TOKEN "
+                            + "or discord.bot-token.");
+        }
+        if (!isValidChannelId(channelId)) {
+            errors.add(
+                    "Discord channel ID is missing or invalid; set discord.channel-id "
+                            + "to the configured text channel's 17-20 digit ID.");
+        }
+        return List.copyOf(errors);
     }
 
     public boolean chatEnabled() {
