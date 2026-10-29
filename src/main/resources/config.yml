@@ -1,7 +1,7 @@
 discord:
   # Prefer setting MINEBRIDGE_BOT_TOKEN as an environment variable.
-  bot-token: "PUT_YOUR_BOT_TOKEN_HERE"
-  channel-id: "PUT_YOUR_CHANNEL_ID_HERE"
+  bot-token: ""
+  channel-id: ""
 
 messages:
   minecraft-to-discord: "**{player}**: {message}"

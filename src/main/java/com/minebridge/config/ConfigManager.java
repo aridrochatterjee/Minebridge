@@ -3,16 +3,48 @@ package com.minebridge.config;
 import com.minebridge.MineBridgePlugin;
 import org.bukkit.ChatColor;
 
+import java.util.Map;
+
 public final class ConfigManager {
 
     private final MineBridgePlugin plugin;
+    private volatile Settings settings;
+
+    private record Settings(
+            String botToken,
+            String channelId,
+            boolean chatEnabled,
+            boolean eventsEnabled,
+            Map<String, String> messages) {
+    }
 
     public ConfigManager(MineBridgePlugin plugin) {
         this.plugin = plugin;
+        reload();
     }
 
     public void reload() {
-        // Values are read directly from the refreshed Bukkit configuration.
+        String[] messageKeys = {
+                "messages.minecraft-to-discord",
+                "messages.discord-to-minecraft",
+                "messages.player-join",
+                "messages.player-leave"
+        };
+        Map<String, String> messages = new java.util.HashMap<>();
+        for (String key : messageKeys) {
+            String value = plugin.getConfig().getString(key);
+            if (value != null) {
+                messages.put(key, value);
+            }
+        }
+
+        settings = new Settings(
+                plugin.getConfig().getString("discord.bot-token", ""),
+                plugin.getConfig().getString("discord.channel-id", ""),
+                plugin.getConfig().getBoolean("features.chat-relay", true),
+                plugin.getConfig().getBoolean(
+                        "features.join-leave-notifications", true),
+                Map.copyOf(messages));
     }
 
     public String getBotToken() {
@@ -21,24 +53,37 @@ public final class ConfigManager {
             return env.trim();
         }
 
-        return plugin.getConfig().getString("discord.bot-token", "").trim();
+        String configured = settings.botToken();
+        return configured == null ? "" : configured.trim();
     }
 
     public String getChannelId() {
-        return plugin.getConfig().getString("discord.channel-id", "").trim();
+        String channelId = settings.channelId();
+        return channelId == null ? "" : channelId.trim();
+    }
+
+    public static boolean isValidBotToken(String token) {
+        return token != null
+                && !token.isBlank()
+                && token.length() <= 512
+                && !token.equals("PUT_YOUR_BOT_TOKEN_HERE")
+                && token.chars().noneMatch(Character::isWhitespace);
+    }
+
+    public static boolean isValidChannelId(String channelId) {
+        return channelId != null && channelId.matches("\\d{17,20}");
     }
 
     public boolean chatEnabled() {
-        return plugin.getConfig().getBoolean("features.chat-relay", true);
+        return settings.chatEnabled();
     }
 
     public boolean eventsEnabled() {
-        return plugin.getConfig().getBoolean(
-                "features.join-leave-notifications", true);
+        return settings.eventsEnabled();
     }
 
     public String message(String key, String fallback) {
-        return plugin.getConfig().getString(key, fallback);
+        return settings.messages().getOrDefault(key, fallback);
     }
 
     public String color(String text) {
