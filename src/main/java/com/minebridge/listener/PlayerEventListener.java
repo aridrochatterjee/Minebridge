@@ -1,6 +1,7 @@
 package com.minebridge.listener;
 
 import com.minebridge.discord.DiscordService;
+import com.minebridge.discord.RelayMessageFormatter;
 import com.minebridge.config.ConfigManager;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -20,18 +21,24 @@ public final class PlayerEventListener implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         if (config.eventsEnabled()) {
-            discord.send(config.message(
-                    "messages.player-join", "🟢 **{player}** joined the server.")
-                    .replace("{player}", event.getPlayer().getName()));
+            discord.send(RelayMessageFormatter.formatForDiscord(
+                    config.message(
+                            "messages.player-join",
+                            "🟢 **{player}** joined the server."),
+                    event.getPlayer().getName(),
+                    ""));
         }
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         if (config.eventsEnabled()) {
-            discord.send(config.message(
-                    "messages.player-leave", "🔴 **{player}** left the server.")
-                    .replace("{player}", event.getPlayer().getName()));
+            discord.send(RelayMessageFormatter.formatForDiscord(
+                    config.message(
+                            "messages.player-leave",
+                            "🔴 **{player}** left the server."),
+                    event.getPlayer().getName(),
+                    ""));
         }
     }
 }

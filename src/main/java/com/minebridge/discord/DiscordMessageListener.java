@@ -44,9 +44,8 @@ public final class DiscordMessageListener extends ListenerAdapter {
                 "messages.discord-to-minecraft",
                 "&9[Discord] &f{player}: {message}");
 
-        String formatted = config.color(template)
-                .replace("{player}", player)
-                .replace("{message}", content);
+        String formatted = RelayMessageFormatter.formatForMinecraft(
+                config.color(template), player, content);
 
         if (plugin.isEnabled()) {
             plugin.getServer().getScheduler().runTask(plugin,

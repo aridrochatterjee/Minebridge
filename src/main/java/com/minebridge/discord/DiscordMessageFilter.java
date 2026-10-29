@@ -1,7 +1,5 @@
 package com.minebridge.discord;
 
-import java.util.Objects;
-
 public final class DiscordMessageFilter {
 
     private DiscordMessageFilter() {
@@ -19,18 +17,12 @@ public final class DiscordMessageFilter {
                 && !webhook
                 && guildMessage
                 && messageChannelId != null
-                && Objects.equals(messageChannelId, configuredChannelId);
+                && messageChannelId.equals(configuredChannelId);
     }
 
     public static String sanitizeIncoming(String content) {
-        if (content == null) {
-            return "";
-        }
-        String sanitized = content
-                .replaceAll("\u00a7.", "")
-                .replace('\r', ' ')
-                .replace('\n', ' ')
-                .trim();
-        return sanitized.length() <= 2000 ? sanitized : "";
+        String sanitized = RelayMessageFormatter.sanitizeText(content);
+        return sanitized.length() <= RelayMessageFormatter.MAX_MESSAGE_LENGTH
+                ? sanitized : "";
     }
 }
