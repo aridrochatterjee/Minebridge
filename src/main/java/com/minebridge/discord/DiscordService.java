@@ -26,18 +26,26 @@ public final class DiscordService {
     private final BlockingMessageQueue outgoingQueue =
             new BlockingMessageQueue(OUTGOING_QUEUE_CAPACITY);
     private final Object lifecycleLock = new Object();
+    private final ReloadRequestGate reloadRequests = new ReloadRequestGate();
+    private final ActiveClientSnapshot<JDA> incomingClient = new ActiveClientSnapshot<>();
     private final AtomicBoolean sending = new AtomicBoolean();
     private final AtomicLong sendSequence = new AtomicLong();
     private final RateLimitedDiagnostics diagnostics =
             new RateLimitedDiagnostics(DIAGNOSTIC_INTERVAL_NANOS);
 
     private volatile JDA jda;
+    private volatile JDA pendingJda;
     private volatile boolean stopping;
     private volatile String lastConnectionState = "NOT_STARTED";
+    private boolean starting;
     private long activeSend;
     private long connectionDeadlineNanos;
     private boolean connectionFailureReported;
     private boolean hasConnected;
+    private boolean latestReloadInProgress;
+    private ConfigManager.Settings pendingSettings;
+    private long pendingRequestId;
+    private Consumer<ReloadResult> startupCallback;
     private Consumer<ReloadResult> pendingReload;
 
     public DiscordService(MineBridgePlugin plugin, ConfigManager config) {
@@ -49,15 +57,47 @@ public final class DiscordService {
         return start(null);
     }
 
+    public void markConfigurationInvalid() {
+        synchronized (lifecycleLock) {
+            if (jda == null) {
+                lastConnectionState = "INVALID_CONFIGURATION";
+            }
+        }
+    }
+
+    public long beginReloadRequest() {
+        synchronized (lifecycleLock) {
+            long requestId = reloadRequests.nextRequest();
+            latestReloadInProgress = true;
+            if (jda == null) {
+                lastConnectionState = "CONNECTING";
+            }
+            return requestId;
+        }
+    }
+
+    public void finishReloadRequest(long requestId, String failureState) {
+        synchronized (lifecycleLock) {
+            if (!reloadRequests.isCurrent(requestId)) {
+                return;
+            }
+            latestReloadInProgress = false;
+            if (jda == null && pendingJda == null && !stopping) {
+                lastConnectionState = failureState;
+            }
+        }
+    }
+
     public boolean start(Consumer<ReloadResult> callback) {
-        List<String> errors = config.validationErrors();
+        ConfigManager.Settings settings = config.currentSettings();
+        List<String> errors = ConfigManager.validateConfiguration(
+                settings.botToken(), settings.channelId());
         if (!errors.isEmpty()) {
             reportConfigurationErrors(errors);
             complete(callback, new ReloadResult(false, String.join(" ", errors)));
             return false;
         }
 
-        JDA created;
         synchronized (lifecycleLock) {
             if (stopping) {
                 complete(callback, new ReloadResult(false, "MineBridge is shutting down."));
@@ -69,42 +109,55 @@ public final class DiscordService {
                         complete(callback, new ReloadResult(
                                 true, "Discord is already connected."));
                     } else {
-                        pendingReload = callback;
+                        startupCallback = callback;
                         setConnectionDeadline();
                     }
                 }
                 return true;
             }
+            if (starting) {
+                complete(callback, new ReloadResult(false, "Discord startup is already in progress."));
+                return true;
+            }
 
+            starting = true;
             lastConnectionState = "CONNECTING";
             hasConnected = false;
             setConnectionDeadline();
-            try {
-                created = JDABuilder.createDefault(config.getBotToken())
-                        .enableIntents(
-                                GatewayIntent.GUILD_MESSAGES,
-                                GatewayIntent.MESSAGE_CONTENT)
-                        .setMemberCachePolicy(MemberCachePolicy.NONE)
-                        .setActivity(Activity.playing("Minecraft"))
-                        .addEventListeners(
-                                new DiscordMessageListener(plugin, config),
-                                new DiscordGatewayListener(this))
-                        .build();
-                jda = created;
-                pendingReload = callback;
-            } catch (IllegalArgumentException exception) {
-                return startupFailed(
-                        callback,
-                        "Discord rejected the configured token or client settings. "
-                                + "Verify the token and enabled gateway intents; no token was logged.");
-            } catch (RuntimeException exception) {
-                return startupFailed(
-                        callback,
-                        "Discord client startup failed (" + exception.getClass().getSimpleName()
-                                + "). Check network access and bot configuration; no token was logged.");
-            }
         }
 
+        JDA created;
+        try {
+            created = createClient(settings);
+        } catch (IllegalArgumentException exception) {
+            return startupFailed(
+                    callback,
+                    "Discord rejected the configured token or client settings. "
+                            + "Verify the token and enabled gateway intents; no token was logged.");
+        } catch (RuntimeException exception) {
+            return startupFailed(
+                    callback,
+                    "Discord client startup failed (" + exception.getClass().getSimpleName()
+                            + "). Check network access and bot configuration; no token was logged.");
+        }
+
+        boolean staleStartup;
+        synchronized (lifecycleLock) {
+            starting = false;
+            staleStartup = stopping || jda != null;
+            if (!staleStartup) {
+                jda = created;
+                incomingClient.activate(created, settings);
+                startupCallback = callback;
+            }
+        }
+        if (staleStartup) {
+            created.shutdownNow();
+            complete(callback, new ReloadResult(false, stopping
+                    ? "MineBridge is shutting down."
+                    : "Discord startup was superseded by another client."));
+            return false;
+        }
         plugin.getLogger().info(
                 "Discord client started; waiting for the gateway connection.");
         if (created.getStatus() == JDA.Status.CONNECTED) {
@@ -113,58 +166,115 @@ public final class DiscordService {
         return true;
     }
 
-    public void reload(Consumer<ReloadResult> callback) {
-        List<String> errors = config.validationErrors();
-        if (!errors.isEmpty()) {
-            reportConfigurationErrors(errors);
-            Consumer<ReloadResult> superseded;
-            synchronized (lifecycleLock) {
-                superseded = pendingReload;
-                pendingReload = null;
-            }
-            complete(superseded, new ReloadResult(
-                    false, "A newer reload was rejected because configuration is invalid."));
-            complete(callback, new ReloadResult(false, String.join(" ", errors)));
+    public void reload(
+            long requestId,
+            ConfigManager.Candidate candidate,
+            Consumer<ReloadResult> callback) {
+        if (!candidate.valid()) {
+            finishReloadRequest(requestId, "INVALID_CONFIGURATION");
+            complete(callback, new ReloadResult(
+                    false, String.join(" ", candidate.errors())));
             return;
         }
 
-        JDA previous;
-        Consumer<ReloadResult> superseded;
+        JDA previousPending = null;
+        Consumer<ReloadResult> superseded = null;
+        boolean requestStale;
         synchronized (lifecycleLock) {
-            if (stopping) {
-                complete(callback, new ReloadResult(false, "MineBridge is shutting down."));
-                return;
+            requestStale = stopping || !reloadRequests.isCurrent(requestId);
+            if (!requestStale) {
+                previousPending = pendingJda;
+                superseded = pendingReload;
+                pendingJda = null;
+                pendingSettings = null;
+                pendingReload = null;
             }
-            previous = jda;
-            jda = null;
-            superseded = pendingReload;
-            pendingReload = null;
-            activeSend = sendSequence.incrementAndGet();
-            sending.set(false);
-            lastConnectionState = "CONNECTING";
-            hasConnected = false;
         }
-        if (previous != null) {
-            previous.shutdownNow();
+        if (previousPending != null) {
+            previousPending.shutdownNow();
         }
         complete(superseded, new ReloadResult(false, "A newer reload replaced this request."));
-        start(callback);
+        if (requestStale) {
+            complete(callback, new ReloadResult(false,
+                    "This reload was superseded or MineBridge is shutting down."));
+            return;
+        }
+
+        JDA created;
+        try {
+            created = createClient(candidate.settings());
+        } catch (IllegalArgumentException exception) {
+            finishReloadRequest(requestId, "FAILED");
+            complete(callback, new ReloadResult(false,
+                    "Discord rejected the candidate configuration. Verify the token "
+                            + "and gateway intents; no token was logged."));
+            return;
+        } catch (RuntimeException exception) {
+            finishReloadRequest(requestId, "FAILED");
+            complete(callback, new ReloadResult(false,
+                    "Could not start the replacement Discord client ("
+                            + exception.getClass().getSimpleName()
+                            + "). The previous connection and configuration remain active."));
+            return;
+        }
+
+        boolean staleAfterCreate;
+        synchronized (lifecycleLock) {
+            staleAfterCreate = stopping || !reloadRequests.isCurrent(requestId);
+            if (!staleAfterCreate) {
+                pendingJda = created;
+                pendingSettings = candidate.settings();
+                pendingRequestId = requestId;
+                pendingReload = callback;
+                if (jda == null) {
+                    lastConnectionState = "CONNECTING";
+                }
+                connectionDeadlineNanos =
+                        System.nanoTime() + CONNECTION_TIMEOUT_NANOS;
+            }
+        }
+        if (staleAfterCreate) {
+            created.shutdownNow();
+            finishReloadRequest(requestId, "DISCONNECTED");
+            complete(callback, new ReloadResult(false,
+                    "This reload was superseded or MineBridge is shutting down."));
+            return;
+        }
+        plugin.getLogger().info(
+                "Replacement Discord client started; waiting for the gateway connection.");
+        if (created.getStatus() == JDA.Status.CONNECTED) {
+            onGatewayReady(created);
+        }
     }
 
     public MineBridgeStatus getStatus(long uptimeMillis) {
-        JDA current = jda;
-        String state = current == null ? lastConnectionState : current.getStatus().name();
-        boolean channelAvailable = current != null
-                && current.getStatus() == JDA.Status.CONNECTED
-                && current.getTextChannelById(config.getChannelId()) != null;
-        return new MineBridgeStatus(
-                state,
-                channelAvailable,
-                outgoingQueue.size(),
-                outgoingQueue.capacity(),
-                uptimeMillis,
-                config.chatEnabled(),
-                config.eventsEnabled());
+        synchronized (lifecycleLock) {
+            JDA current = jda;
+            String state = current == null
+                    ? lastConnectionState : current.getStatus().name();
+            boolean channelAvailable = current != null
+                    && current.getStatus() == JDA.Status.CONNECTED
+                    && current.getTextChannelById(config.getChannelId()) != null;
+            return new MineBridgeStatus(
+                    state,
+                    channelAvailable,
+                    outgoingQueue.size(),
+                    outgoingQueue.capacity(),
+                    uptimeMillis,
+                    config.chatEnabled(),
+                    config.eventsEnabled());
+        }
+    }
+
+    static String stateAfterPendingDiscard(
+            String activeState, String newerPendingState, String fallbackState) {
+        if (newerPendingState != null) {
+            return newerPendingState;
+        }
+        if (activeState != null) {
+            return activeState;
+        }
+        return "CONNECTING".equals(fallbackState) ? "DISCONNECTED" : fallbackState;
     }
 
     public void send(String message) {
@@ -239,15 +349,30 @@ public final class DiscordService {
         return current != null && current.getStatus() == JDA.Status.CONNECTED;
     }
 
+    public ConfigManager.Settings captureIncomingSettings(JDA source) {
+        return incomingClient.capture(source);
+    }
+
     public void stop() {
-        stopping = true;
         JDA previous;
+        JDA previousPending;
         Consumer<ReloadResult> pending;
+        Consumer<ReloadResult> starting;
         synchronized (lifecycleLock) {
+            stopping = true;
+            this.starting = false;
             previous = jda;
+            previousPending = pendingJda;
             jda = null;
+            pendingJda = null;
+            pendingSettings = null;
+            reloadRequests.nextRequest();
+            latestReloadInProgress = false;
+            incomingClient.clear();
             pending = pendingReload;
             pendingReload = null;
+            starting = startupCallback;
+            startupCallback = null;
             lastConnectionState = "SHUTDOWN";
             activeSend = sendSequence.incrementAndGet();
             sending.set(false);
@@ -256,27 +381,82 @@ public final class DiscordService {
         if (previous != null) {
             previous.shutdownNow();
         }
+        if (previousPending != null) {
+            previousPending.shutdownNow();
+        }
         complete(pending, new ReloadResult(false, "MineBridge shut down before Discord connected."));
+        complete(starting, new ReloadResult(false, "MineBridge shut down before Discord connected."));
     }
 
     public void onGatewayReady(JDA source) {
         Consumer<ReloadResult> callback;
+        Consumer<ReloadResult> replacedStartupCallback = null;
+        JDA previous = null;
+        JDA discarded = null;
+        boolean stalePending = false;
         synchronized (lifecycleLock) {
-            if (source != jda) {
+            if (stopping) {
                 return;
             }
-            lastConnectionState = "CONNECTED";
-            hasConnected = true;
-            connectionFailureReported = false;
-            callback = pendingReload;
-            pendingReload = null;
+            if (source == pendingJda) {
+                ConfigManager.Settings activatedSettings = pendingSettings;
+                previous = jda;
+                boolean activated = reloadRequests.runIfCurrent(pendingRequestId, () -> {
+                    config.commit(new ConfigManager.Candidate(activatedSettings, List.of()));
+                    jda = source;
+                    incomingClient.activate(source, activatedSettings);
+                });
+                if (!activated) {
+                    discarded = pendingJda;
+                    pendingJda = null;
+                    pendingSettings = null;
+                    latestReloadInProgress = false;
+                    callback = pendingReload;
+                    pendingReload = null;
+                    stalePending = true;
+                } else {
+                    pendingJda = null;
+                    pendingSettings = null;
+                    latestReloadInProgress = false;
+                    activeSend = sendSequence.incrementAndGet();
+                    sending.set(false);
+                    lastConnectionState = "CONNECTED";
+                    hasConnected = true;
+                    connectionFailureReported = false;
+                    callback = pendingReload;
+                    pendingReload = null;
+                    replacedStartupCallback = startupCallback;
+                    startupCallback = null;
+                }
+            } else if (source == jda) {
+                lastConnectionState = "CONNECTED";
+                hasConnected = true;
+                connectionFailureReported = false;
+                callback = startupCallback;
+                startupCallback = null;
+            } else {
+                return;
+            }
+        }
+        if (discarded != null) {
+            discarded.shutdownNow();
+        }
+        if (!stalePending && previous != null) {
+            previous.shutdownNow();
+        }
+        if (stalePending) {
+            complete(callback, new ReloadResult(false,
+                    "A newer reload request superseded this candidate."));
+            return;
         }
         plugin.getLogger().info("Discord gateway connected.");
-        complete(callback, new ReloadResult(true, "Discord connection established."));
+        ReloadResult result = new ReloadResult(true, "Discord connection established.");
+        complete(callback, result);
+        complete(replacedStartupCallback, result);
     }
 
     public void onGatewayDisconnect(JDA source) {
-        if (source == jda) {
+        if (source == jda || source == pendingJda) {
             warnRateLimited(
                     "gateway-disconnected",
                     "Discord gateway disconnected; JDA will attempt to resume or reconnect.");
@@ -294,47 +474,107 @@ public final class DiscordService {
     private void checkConnectionHealth() {
         Consumer<ReloadResult> callback = null;
         String message = null;
+        JDA failedPending = null;
         synchronized (lifecycleLock) {
-            JDA current = jda;
-            if (current == null || connectionFailureReported) {
+            if (stopping) {
+                return;
+            }
+            JDA current = pendingJda != null ? pendingJda : jda;
+            boolean checkingReplacement = pendingJda != null;
+            if (current == null || (connectionFailureReported && !checkingReplacement)) {
                 return;
             }
 
-            JDA.Status status = current.getStatus();
-            if (status == JDA.Status.FAILED_TO_LOGIN) {
-                message = "Discord login failed. Verify the bot token and required gateway intents.";
-            } else if (status == JDA.Status.SHUTDOWN
-                    || status == JDA.Status.SHUTTING_DOWN) {
-                message = "Discord client shut down before the connection became ready. "
-                        + "Check the server log for gateway and network errors.";
-            } else if (!hasConnected
-                    && System.nanoTime() >= connectionDeadlineNanos
-                    && status != JDA.Status.CONNECTED) {
-                message = "Discord connection was not established within 45 seconds "
-                        + "(current state: " + status.name() + "). Check network access, "
-                        + "bot token, and gateway intents.";
-            }
-
-            if (message != null) {
-                lastConnectionState = status == JDA.Status.FAILED_TO_LOGIN
-                        ? "FAILED_TO_LOGIN" : status.name();
-                connectionFailureReported = true;
+            boolean staleCandidate = checkingReplacement
+                    && !reloadRequests.isCurrent(pendingRequestId);
+            if (staleCandidate) {
+                failedPending = pendingJda;
+                pendingJda = null;
+                pendingSettings = null;
                 callback = pendingReload;
                 pendingReload = null;
+                JDA active = jda;
+                String activeState = active == null ? null : active.getStatus().name();
+                String newerPendingState = latestReloadInProgress ? "CONNECTING" : null;
+                lastConnectionState = stateAfterPendingDiscard(
+                        activeState, newerPendingState, lastConnectionState);
+                message = "A newer reload request superseded this candidate.";
+            }
+
+            if (!staleCandidate) {
+                JDA.Status status = current.getStatus();
+                if (status == JDA.Status.FAILED_TO_LOGIN) {
+                    message = "Discord login failed. Verify the bot token and required gateway intents.";
+                } else if (status == JDA.Status.SHUTDOWN
+                        || status == JDA.Status.SHUTTING_DOWN) {
+                    message = "Discord client shut down before the connection became ready. "
+                            + "Check the server log for gateway and network errors.";
+                } else if ((checkingReplacement || !hasConnected)
+                        && System.nanoTime() >= connectionDeadlineNanos
+                        && status != JDA.Status.CONNECTED) {
+                    message = "Discord connection was not established within 45 seconds "
+                            + "(current state: " + status.name() + "). Check network access, "
+                            + "bot token, and gateway intents.";
+                }
+
+                if (message != null) {
+                    if (checkingReplacement) {
+                        failedPending = pendingJda;
+                        pendingJda = null;
+                        pendingSettings = null;
+                        latestReloadInProgress = false;
+                        if (jda == null) {
+                            lastConnectionState = status == JDA.Status.FAILED_TO_LOGIN
+                                    ? "FAILED_TO_LOGIN" : status.name();
+                        }
+                    } else {
+                        lastConnectionState = status == JDA.Status.FAILED_TO_LOGIN
+                                ? "FAILED_TO_LOGIN" : status.name();
+                        connectionFailureReported = true;
+                    }
+                    callback = checkingReplacement ? pendingReload : startupCallback;
+                    if (checkingReplacement) {
+                        latestReloadInProgress = false;
+                    }
+                    if (checkingReplacement) {
+                        pendingReload = null;
+                    } else {
+                        startupCallback = null;
+                    }
+                }
             }
         }
 
         if (message != null) {
+            if (failedPending != null) {
+                failedPending.shutdownNow();
+            }
             warnRateLimited("connection-failure", message);
             complete(callback, new ReloadResult(false, message));
         }
     }
 
+    private JDA createClient(ConfigManager.Settings settings) {
+        return JDABuilder.createDefault(settings.botToken())
+                .enableIntents(
+                        GatewayIntent.GUILD_MESSAGES,
+                        GatewayIntent.MESSAGE_CONTENT)
+                .setMemberCachePolicy(MemberCachePolicy.NONE)
+                .setActivity(Activity.playing("Minecraft"))
+                .addEventListeners(
+                        new DiscordMessageListener(plugin, this, config),
+                        new DiscordGatewayListener(this))
+                .build();
+    }
+
     private boolean startupFailed(Consumer<ReloadResult> callback, String message) {
-        jda = null;
-        lastConnectionState = "FAILED";
-        connectionFailureReported = true;
-        pendingReload = null;
+        synchronized (lifecycleLock) {
+            starting = false;
+            if (!stopping && jda == null && pendingJda == null) {
+                lastConnectionState = "FAILED";
+                connectionFailureReported = true;
+            }
+        }
         warnRateLimited("connection-failure", message);
         complete(callback, new ReloadResult(false, message));
         return false;
