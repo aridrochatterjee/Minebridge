@@ -8,23 +8,28 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 public final class DiscordMessageListener extends ListenerAdapter {
 
     private final MineBridgePlugin plugin;
+    private final DiscordService discord;
     private final ConfigManager config;
 
     public DiscordMessageListener(
-            MineBridgePlugin plugin, ConfigManager config) {
+            MineBridgePlugin plugin, DiscordService discord, ConfigManager config) {
         this.plugin = plugin;
+        this.discord = discord;
         this.config = config;
     }
 
     @Override
     public void onMessageReceived(MessageReceivedEvent event) {
-        if (!DiscordMessageFilter.shouldRelay(
-                config.chatEnabled(),
+        ConfigManager.Settings settings =
+                discord.captureIncomingSettings(event.getJDA());
+        if (settings == null
+                || !DiscordMessageFilter.shouldRelay(
+                settings.chatEnabled(),
                 event.getAuthor().isBot(),
                 event.isWebhookMessage(),
                 event.isFromGuild(),
                 event.getChannel().getId(),
-                config.getChannelId())) {
+                settings.channelId())) {
             return;
         }
 
@@ -40,9 +45,8 @@ public final class DiscordMessageListener extends ListenerAdapter {
             return;
         }
 
-        String template = config.message(
-                "messages.discord-to-minecraft",
-                "&9[Discord] &f{player}: {message}");
+        String template = settings.messages().getOrDefault(
+                "messages.discord-to-minecraft", "&9[Discord] &f{player}: {message}");
 
         String formatted = RelayMessageFormatter.formatForMinecraft(
                 config.color(template), player, content);

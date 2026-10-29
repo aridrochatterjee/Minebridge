@@ -24,10 +24,17 @@ public final class MineBridgePlugin extends JavaPlugin {
         saveDefaultConfig();
 
         configManager = new ConfigManager(this);
+        ConfigManager.Candidate initialConfig = configManager.loadCandidate();
         discordService = new DiscordService(this, configManager);
-
-        getServer().getScheduler().runTaskAsynchronously(
-                this, () -> discordService.start());
+        if (initialConfig.valid()) {
+            configManager.commit(initialConfig);
+            getServer().getScheduler().runTaskAsynchronously(
+                    this, () -> discordService.start());
+        } else {
+            initialConfig.errors().forEach(message ->
+                    getLogger().severe("MineBridge configuration: " + message));
+            discordService.markConfigurationInvalid();
+        }
 
         getServer().getScheduler().runTaskTimerAsynchronously(
                 this, discordService::processOutgoing, 20L, 5L);
@@ -59,22 +66,23 @@ public final class MineBridgePlugin extends JavaPlugin {
     }
 
     public void reloadMineBridge(Consumer<ReloadResult> callback) {
-        try {
-            reloadConfig();
-            configManager.reload();
-        } catch (RuntimeException exception) {
-            String message = "Could not reload MineBridge configuration ("
-                    + exception.getClass().getSimpleName() + "). Check config.yml syntax.";
-            getLogger().warning(message);
-            callback.accept(new ReloadResult(false, message));
+        long requestId = discordService.beginReloadRequest();
+        ConfigManager.Candidate candidate = configManager.loadCandidate();
+        if (!candidate.valid()) {
+            discordService.finishReloadRequest(requestId, "INVALID_CONFIGURATION");
+            candidate.errors().forEach(message ->
+                    getLogger().warning("MineBridge configuration: " + message));
+            callback.accept(new ReloadResult(
+                    false, String.join(" ", candidate.errors())));
             return;
         }
 
         try {
             getServer().getScheduler().runTaskAsynchronously(this, () ->
-                    discordService.reload(
+                    discordService.reload(requestId, candidate,
                             result -> deliverReloadResult(callback, result)));
         } catch (IllegalPluginAccessException exception) {
+            discordService.finishReloadRequest(requestId, "DISCONNECTED");
             callback.accept(new ReloadResult(
                     false, "MineBridge is shutting down; Discord was not reloaded."));
         }
