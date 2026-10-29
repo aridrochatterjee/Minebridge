@@ -5,6 +5,7 @@ import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -90,6 +91,52 @@ class ConfigValidationTest {
     }
 
     @Test
+    void acceptsOnlyThePlaceholdersAllowedForEachTemplate() {
+        assertTrue(ConfigManager.validateMessageTemplates(validTemplates()).isEmpty());
+
+        Map<String, Object> templates = new HashMap<>(validTemplates());
+        templates.put("messages.player-join", "{player} {message}");
+        String untrustedPlaceholder = "private-template-secret";
+        templates.put("messages.discord-to-minecraft", "{" + untrustedPlaceholder + "}");
+
+        var errors = ConfigManager.validateMessageTemplates(templates);
+
+        assertEquals(2, errors.size());
+        assertTrue(errors.stream().anyMatch(error ->
+                error.contains("messages.player-join")
+                        && error.contains("unsupported placeholder")));
+        assertTrue(errors.stream().anyMatch(error ->
+                error.contains("messages.discord-to-minecraft")
+                        && error.contains("unsupported placeholder")));
+        assertFalse(errors.toString().contains(untrustedPlaceholder));
+    }
+
+    @Test
+    void rejectsMalformedBracesEmptyTemplatesAndOversizedTemplates() {
+        Map<String, Object> templates = new HashMap<>(validTemplates());
+        templates.put("messages.minecraft-to-discord", "prefix {player");
+        templates.put("messages.discord-to-minecraft", "}");
+        templates.put("messages.player-join", "  \t");
+        templates.put("messages.player-leave", "x".repeat(2001));
+
+        var errors = ConfigManager.validateMessageTemplates(templates);
+
+        assertEquals(4, errors.size());
+        assertTrue(errors.stream().anyMatch(error ->
+                error.contains("messages.minecraft-to-discord")
+                        && error.contains("malformed")));
+        assertTrue(errors.stream().anyMatch(error ->
+                error.contains("messages.discord-to-minecraft")
+                        && error.contains("malformed")));
+        assertTrue(errors.stream().anyMatch(error ->
+                error.contains("messages.player-join")
+                        && error.contains("empty")));
+        assertTrue(errors.stream().anyMatch(error ->
+                error.contains("messages.player-leave")
+                        && error.contains("2000-character")));
+    }
+
+    @Test
     void resolvesConfigTokenWhenEnvironmentValueIsEmpty() {
         assertEquals("configured-token", ConfigManager.resolveBotToken("", " configured-token "));
         assertEquals("", ConfigManager.resolveBotToken(null, null));
@@ -153,6 +200,35 @@ class ConfigValidationTest {
         assertThrows(IllegalArgumentException.class, () -> manager.commit(invalid));
         assertEquals("configured-test-token", manager.currentSettings().botToken());
         assertEquals("12345678901234567", manager.currentSettings().channelId());
+    }
+
+    @Test
+    void invalidTemplateCandidateCannotReplaceCommittedConfiguration() {
+        ConfigManager manager = new ConfigManager(null);
+        var valid = manager.candidateFrom(validConfiguration(), null);
+        manager.commit(valid);
+
+        YamlConfiguration invalidConfiguration = validConfiguration();
+        invalidConfiguration.set("messages.player-join", "Joined as {username}");
+        var invalid = manager.candidateFrom(invalidConfiguration, null);
+
+        assertFalse(invalid.valid());
+        assertTrue(invalid.errors().stream()
+                .anyMatch(error -> error.contains("messages.player-join")));
+        assertThrows(IllegalArgumentException.class, () -> manager.commit(invalid));
+        assertEquals(
+                valid.settings().messages(),
+                manager.currentSettings().messages());
+        assertEquals("configured-test-token", manager.currentSettings().botToken());
+    }
+
+    private static Map<String, Object> validTemplates() {
+        return Map.of(
+                "messages.minecraft-to-discord", "{player}: {message} {timestamp}",
+                "messages.discord-to-minecraft",
+                "{player} {display_name} {username} {message} {timestamp}",
+                "messages.player-join", "{player} {timestamp}",
+                "messages.player-leave", "{player} {timestamp}");
     }
 
     private static YamlConfiguration validConfiguration() {

@@ -4,8 +4,11 @@ discord:
   channel-id: ""
 
 messages:
+  # Allowed: {player}, {message}, {timestamp} (UTC ISO-8601).
   minecraft-to-discord: "**{player}**: {message}"
+  # Allowed: {player}, {display_name}, {username}, {message}, {timestamp}.
   discord-to-minecraft: "&9[Discord] &f{player}: {message}"
+  # Join/leave allow {player} and {timestamp} (UTC ISO-8601).
   player-join: "🟢 **{player}** joined the server."
   player-leave: "🔴 **{player}** left the server."
 

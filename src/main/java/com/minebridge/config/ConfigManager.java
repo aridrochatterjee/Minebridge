@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class ConfigManager {
 
@@ -22,6 +23,12 @@ public final class ConfigManager {
             "messages.discord-to-minecraft",
             "messages.player-join",
             "messages.player-leave");
+    private static final Map<String, Set<String>> MESSAGE_PLACEHOLDERS = Map.of(
+            "messages.minecraft-to-discord", Set.of("player", "message", "timestamp"),
+            "messages.discord-to-minecraft",
+            Set.of("player", "display_name", "username", "message", "timestamp"),
+            "messages.player-join", Set.of("player", "timestamp"),
+            "messages.player-leave", Set.of("player", "timestamp"));
     private static final int MAX_TEMPLATE_LENGTH = 2000;
     private static final Map<String, String> SAFE_MESSAGES = Map.of(
             "messages.minecraft-to-discord", "**{player}**: {message}",
@@ -150,11 +157,44 @@ public final class ConfigManager {
             Object value = messages.get(key);
             if (!(value instanceof String stringValue)) {
                 errors.add(key + " must be a string.");
+            } else if (stringValue.isBlank()) {
+                errors.add(key + " must not be empty.");
             } else if (stringValue.length() > MAX_TEMPLATE_LENGTH) {
                 errors.add(key + " exceeds the 2000-character message limit.");
+            } else {
+                validateTemplatePlaceholders(key, stringValue, errors);
             }
         }
         return List.copyOf(errors);
+    }
+
+    private static void validateTemplatePlaceholders(
+            String key, String template, List<String> errors) {
+        Set<String> allowed = MESSAGE_PLACEHOLDERS.get(key);
+        for (int index = 0; index < template.length();) {
+            char current = template.charAt(index);
+            if (current == '}') {
+                errors.add(key + " contains malformed placeholder braces.");
+                return;
+            }
+            if (current != '{') {
+                index++;
+                continue;
+            }
+
+            int closingBrace = template.indexOf('}', index + 1);
+            int nestedBrace = template.indexOf('{', index + 1);
+            if (closingBrace < 0 || (nestedBrace >= 0 && nestedBrace < closingBrace)) {
+                errors.add(key + " contains malformed placeholder braces.");
+                return;
+            }
+
+            String placeholder = template.substring(index + 1, closingBrace);
+            if (!allowed.contains(placeholder)) {
+                errors.add(key + " contains an unsupported placeholder; check its allowed values.");
+            }
+            index = closingBrace + 1;
+        }
     }
 
     public static boolean isValidBotToken(String token) {

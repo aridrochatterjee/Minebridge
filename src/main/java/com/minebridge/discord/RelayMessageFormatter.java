@@ -1,5 +1,6 @@
 package com.minebridge.discord;
 
+import java.util.Map;
 import java.util.regex.Pattern;
 
 public final class RelayMessageFormatter {
@@ -17,17 +18,34 @@ public final class RelayMessageFormatter {
     }
 
     public static String formatForDiscord(String template, String player, String message) {
-        return replacePlaceholders(
-                template,
-                escapeDiscordUserText(player),
-                escapeDiscordUserText(message));
+        return formatForDiscord(template, player, message, "");
+    }
+
+    public static String formatForDiscord(
+            String template, String player, String message, String timestamp) {
+        return replacePlaceholders(template, Map.of(
+                "player", escapeDiscordUserText(player),
+                "message", escapeDiscordUserText(message),
+                "timestamp", escapeDiscordUserText(timestamp)));
     }
 
     public static String formatForMinecraft(String template, String player, String message) {
-        return replacePlaceholders(
-                template,
-                sanitizeText(player),
-                sanitizeText(message));
+        return formatForMinecraft(template, player, player, player, message, "");
+    }
+
+    public static String formatForMinecraft(
+            String template,
+            String player,
+            String displayName,
+            String username,
+            String message,
+            String timestamp) {
+        return replacePlaceholders(template, Map.of(
+                "player", sanitizeText(player),
+                "display_name", sanitizeText(displayName),
+                "username", sanitizeText(username),
+                "message", sanitizeText(message),
+                "timestamp", sanitizeText(timestamp)));
     }
 
     public static String sanitizeText(String input) {
@@ -73,23 +91,27 @@ public final class RelayMessageFormatter {
     }
 
     private static String replacePlaceholders(
-            String template, String player, String message) {
+            String template, Map<String, String> placeholders) {
         if (template == null || template.isEmpty()) {
             return "";
         }
 
         StringBuilder formatted = new StringBuilder(template.length());
         for (int index = 0; index < template.length();) {
-            if (template.startsWith("{player}", index)) {
-                formatted.append(player);
-                index += "{player}".length();
-            } else if (template.startsWith("{message}", index)) {
-                formatted.append(message);
-                index += "{message}".length();
-            } else {
-                formatted.append(template.charAt(index));
-                index++;
+            if (template.charAt(index) == '{') {
+                int closingBrace = template.indexOf('}', index + 1);
+                if (closingBrace >= 0) {
+                    String replacement = placeholders.get(
+                            template.substring(index + 1, closingBrace));
+                    if (replacement != null) {
+                        formatted.append(replacement);
+                        index = closingBrace + 1;
+                        continue;
+                    }
+                }
             }
+            formatted.append(template.charAt(index));
+            index++;
         }
         return formatted.toString();
     }

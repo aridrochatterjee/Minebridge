@@ -43,16 +43,35 @@ installations. Do not put a real token in source control, paste it into chat,
 or include it in logs. The shipped config intentionally has an empty token.
 
 The existing config format contains the Discord token and channel ID, four
-message templates, and `features.chat-relay` / `features.join-leave-notifications`
-toggles. Incorrect types for recognized settings, missing credentials, invalid
-channel IDs, and templates longer than 2000 characters are rejected. A rejected
-reload does not replace the active config or Discord client. Edit config while
-the server is running and use `/minebridge reload`; success is reported only
-after the replacement Discord gateway reaches Ready. Reload requests use
-latest-request-wins semantics: a newer attempt supersedes an older pending
-candidate even if the newer configuration is invalid or its Discord connection
-fails. A failed attempt leaves the currently active connection and settings in
-place; an older candidate will not be applied afterward.
+message templates, and `features.chat-relay` /
+`features.join-leave-notifications` toggles. Templates must be non-empty, no
+longer than 2000 characters, and use only balanced, supported placeholders:
+
+| Template | Supported placeholders |
+| --- | --- |
+| `messages.minecraft-to-discord` | `{player}`, `{message}`, `{timestamp}` |
+| `messages.discord-to-minecraft` | `{player}`, `{display_name}`, `{username}`, `{message}`, `{timestamp}` |
+| `messages.player-join` | `{player}`, `{timestamp}` |
+| `messages.player-leave` | `{player}`, `{timestamp}` |
+
+`{timestamp}` is UTC ISO-8601 and is inserted only when present in a template.
+For Discord messages, `{player}` remains the effective author name used by
+previous versions; `{display_name}` uses the guild member display name when
+available and otherwise falls back to the effective author name. `{username}`
+is the Discord account username. These are display values only and do not link
+Discord and Minecraft accounts. Placeholder values are inserted once and are
+never parsed as template syntax.
+
+Incorrect types for recognized settings, missing credentials, invalid channel
+IDs, empty templates, malformed or unsupported placeholders, and templates
+longer than 2000 characters are rejected. A rejected reload does not replace
+the active config or Discord client. Edit config while the server is running
+and use `/minebridge reload`; success is reported only after the replacement
+Discord gateway reaches Ready. Reload requests use latest-request-wins
+semantics: a newer attempt supersedes an older pending candidate even if the
+newer configuration is invalid or its Discord connection fails. A failed
+attempt leaves the currently active connection and settings in place; an older
+candidate will not be applied afterward.
 
 ## Administration and troubleshooting
 
