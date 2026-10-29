@@ -3,13 +3,19 @@ package com.minebridge;
 import com.minebridge.command.MineBridgeCommand;
 import com.minebridge.config.ConfigManager;
 import com.minebridge.discord.DiscordService;
+import com.minebridge.discord.ReloadResult;
 import com.minebridge.listener.ChatListener;
 import com.minebridge.listener.PlayerEventListener;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.plugin.java.JavaPlugin;
+
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 public final class MineBridgePlugin extends JavaPlugin {
 
+    private final long enabledAtNanos = System.nanoTime();
     private ConfigManager configManager;
     private DiscordService discordService;
 
@@ -21,7 +27,7 @@ public final class MineBridgePlugin extends JavaPlugin {
         discordService = new DiscordService(this, configManager);
 
         getServer().getScheduler().runTaskAsynchronously(
-                this, discordService::start);
+                this, () -> discordService.start());
 
         getServer().getScheduler().runTaskTimerAsynchronously(
                 this, discordService::processOutgoing, 20L, 5L);
@@ -35,7 +41,7 @@ public final class MineBridgePlugin extends JavaPlugin {
         PluginCommand command = getCommand("minebridge");
         if (command != null) {
             MineBridgeCommand handler =
-                    new MineBridgeCommand(this, configManager, discordService);
+                    new MineBridgeCommand(this, discordService);
             command.setExecutor(handler);
             command.setTabCompleter(handler);
         } else {
@@ -52,11 +58,43 @@ public final class MineBridgePlugin extends JavaPlugin {
         }
     }
 
-    public void reloadMineBridge() {
-        reloadConfig();
-        configManager.reload();
-        getServer().getScheduler().runTaskAsynchronously(
-                this, discordService::reload);
+    public void reloadMineBridge(Consumer<ReloadResult> callback) {
+        try {
+            reloadConfig();
+            configManager.reload();
+        } catch (RuntimeException exception) {
+            String message = "Could not reload MineBridge configuration ("
+                    + exception.getClass().getSimpleName() + "). Check config.yml syntax.";
+            getLogger().warning(message);
+            callback.accept(new ReloadResult(false, message));
+            return;
+        }
+
+        getServer().getScheduler().runTaskAsynchronously(this, () ->
+                discordService.reload(result -> deliverReloadResult(callback, result)));
+    }
+
+    private void deliverReloadResult(
+            Consumer<ReloadResult> callback, ReloadResult result) {
+        if (!isEnabled()) {
+            return;
+        }
+        try {
+            getServer().getScheduler().runTask(this, () -> {
+                if (isEnabled()) {
+                    callback.accept(result);
+                }
+            });
+        } catch (IllegalPluginAccessException exception) {
+            if (isEnabled()) {
+                getLogger().warning(
+                        "Could not deliver the Discord reload result because the server scheduler is unavailable.");
+            }
+        }
+    }
+
+    public long getUptimeMillis() {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - enabledAtNanos);
     }
 
     public DiscordService getDiscordService() {

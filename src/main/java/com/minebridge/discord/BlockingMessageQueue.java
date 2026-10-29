@@ -145,6 +145,10 @@ public class BlockingMessageQueue {
         }
     }
 
+    public int capacity() {
+        return capacity;
+    }
+
     /**
      * Check if the queue is empty.
      */
