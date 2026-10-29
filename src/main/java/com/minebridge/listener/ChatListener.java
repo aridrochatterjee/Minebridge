@@ -8,6 +8,8 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 
+import java.time.Instant;
+
 public final class ChatListener implements Listener {
 
     private final MineBridgePlugin plugin;
@@ -35,6 +37,7 @@ public final class ChatListener implements Listener {
         discord.send(RelayMessageFormatter.formatForDiscord(
                 template,
                 event.getPlayer().getName(),
-                event.getMessage()));
+                event.getMessage(),
+                Instant.now().toString()));
     }
 }

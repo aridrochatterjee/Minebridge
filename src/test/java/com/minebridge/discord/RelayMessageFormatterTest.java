@@ -53,6 +53,51 @@ class RelayMessageFormatterTest {
     }
 
     @Test
+    void formatsDiscordIdentityFieldsAndFixedUtcTimestampWithoutRecursiveExpansion() {
+        assertEquals(
+                "Effective | Display 😀 | account_name | says {username} at "
+                        + "2026-10-29T09:38:41Z",
+                RelayMessageFormatter.formatForMinecraft(
+                        "{player} | {display_name} | {username} | {message} at {timestamp}",
+                        "Effective",
+                        "Display 😀",
+                        "account_name",
+                        "says {username}",
+                        "2026-10-29T09:38:41Z"));
+    }
+
+    @Test
+    void formatsJoinAndLeaveTemplatesWithSuppliedTimestamp() {
+        String timestamp = "2026-10-29T09:38:41Z";
+
+        assertEquals(
+                "🟢 Alex joined at " + timestamp,
+                RelayMessageFormatter.formatForDiscord(
+                        "🟢 {player} joined at {timestamp}",
+                        "Alex",
+                        "",
+                        timestamp));
+        assertEquals(
+                "🔴 Alex left at " + timestamp,
+                RelayMessageFormatter.formatForDiscord(
+                        "🔴 {player} left at {timestamp}",
+                        "Alex",
+                        "",
+                        timestamp));
+    }
+
+    @Test
+    void substitutesTimestampOnceAndEscapesUserSuppliedDiscordText() {
+        assertEquals(
+                "**Alex**: {timestamp} @\u200Beveryone at 2026-10-29T09:38:41Z",
+                RelayMessageFormatter.formatForDiscord(
+                        "**{player}**: {message} at {timestamp}",
+                        "Alex",
+                        "{timestamp} @everyone",
+                        "2026-10-29T09:38:41Z"));
+    }
+
+    @Test
     void rejectsBlankAndOversizedContentWithoutTruncating() {
         assertEquals("", RelayMessageFormatter.sanitizeText(null));
         assertEquals("", RelayMessageFormatter.sanitizeText(" \t\n "));

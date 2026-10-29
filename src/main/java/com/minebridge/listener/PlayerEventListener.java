@@ -8,6 +8,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
+import java.time.Instant;
+
 public final class PlayerEventListener implements Listener {
 
     private final DiscordService discord;
@@ -26,7 +28,8 @@ public final class PlayerEventListener implements Listener {
                             "messages.player-join",
                             "🟢 **{player}** joined the server."),
                     event.getPlayer().getName(),
-                    ""));
+                    "",
+                    Instant.now().toString()));
         }
     }
 
@@ -38,7 +41,8 @@ public final class PlayerEventListener implements Listener {
                             "messages.player-leave",
                             "🔴 **{player}** left the server."),
                     event.getPlayer().getName(),
-                    ""));
+                    "",
+                    Instant.now().toString()));
         }
     }
 }

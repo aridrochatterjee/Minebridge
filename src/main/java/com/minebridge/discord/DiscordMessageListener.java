@@ -5,6 +5,8 @@ import com.minebridge.config.ConfigManager;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
+import java.time.Instant;
+
 public final class DiscordMessageListener extends ListenerAdapter {
 
     private final MineBridgePlugin plugin;
@@ -44,12 +46,22 @@ public final class DiscordMessageListener extends ListenerAdapter {
         if (player.isEmpty()) {
             return;
         }
+        String displayName = DiscordMessageFilter.sanitizeIncoming(
+                event.getMember() == null
+                        ? event.getAuthor().getEffectiveName()
+                        : event.getMember().getEffectiveName());
+        String username = DiscordMessageFilter.sanitizeIncoming(event.getAuthor().getName());
 
         String template = settings.messages().getOrDefault(
                 "messages.discord-to-minecraft", "&9[Discord] &f{player}: {message}");
 
         String formatted = RelayMessageFormatter.formatForMinecraft(
-                config.color(template), player, content);
+                config.color(template),
+                player,
+                displayName,
+                username,
+                content,
+                Instant.now().toString());
 
         if (plugin.isEnabled()) {
             plugin.getServer().getScheduler().runTask(plugin,
