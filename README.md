@@ -39,10 +39,22 @@ Outgoing messages use a bounded queue of 100 messages. Messages are retained
 while disconnected or while the configured channel cannot be resolved from
 JDA's cache. If the queue is full, a new message is dropped and a rate-limited
 warning is logged. Messages longer than Discord's 2000-character limit are
-dropped. API-rejected messages are not retried, to avoid duplicate delivery;
-therefore a network failure at that point can lose that message. Outgoing
-messages also disable Discord mentions. The queue is in-memory only and is
-discarded on plugin shutdown.
+dropped rather than truncated, and one rate-limited warning is emitted per
+diagnostic interval. Minecraft formatting control codes are removed from
+relayed user text and line breaks are normalized to spaces. Discord
+`@everyone` and `@here` in relayed Minecraft text are neutralized; JDA also
+disables all parsed mentions for outgoing messages. Discord Markdown syntax in
+user-controlled Minecraft text is escaped, while trusted configured templates
+retain their formatting. Other Unicode, including emoji, is preserved. Discord
+message syntax such as `<@id>` is shown as text in Minecraft and does not
+execute commands or formatting.
+
+API-rejected messages are not retried, to avoid duplicate delivery; therefore a
+network failure after JDA accepts a request can lose that message. Messages
+remain FIFO while queued, and only one Discord send is in flight at a time.
+The in-memory queue is discarded on plugin shutdown. A message accepted by
+Discord but whose success callback is interrupted by shutdown has an
+indeterminate delivery result.
 
 ## Build and verification
 

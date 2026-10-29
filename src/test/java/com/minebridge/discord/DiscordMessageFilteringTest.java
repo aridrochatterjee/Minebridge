@@ -30,6 +30,8 @@ class DiscordMessageFilteringTest {
         assertEquals("", DiscordMessageFilter.sanitizeIncoming(" \n "));
         assertEquals("hello world", DiscordMessageFilter.sanitizeIncoming(
                 "hello\u00a7c\nworld"));
+        assertEquals("hello world", DiscordMessageFilter.sanitizeIncoming(
+                "hello§x§f§f§0§0§a§a world"));
         assertEquals("", DiscordMessageFilter.sanitizeIncoming("x".repeat(2001)));
     }
 }

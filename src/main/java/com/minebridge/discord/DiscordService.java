@@ -18,7 +18,6 @@ import java.util.function.Consumer;
 public final class DiscordService {
 
     private static final int OUTGOING_QUEUE_CAPACITY = 100;
-    private static final int DISCORD_MESSAGE_LIMIT = 2000;
     private static final long DIAGNOSTIC_INTERVAL_NANOS = 30_000_000_000L;
     private static final long CONNECTION_TIMEOUT_NANOS = 45_000_000_000L;
 
@@ -172,7 +171,7 @@ public final class DiscordService {
         if (message == null || message.isBlank()) {
             return;
         }
-        if (message.length() > DISCORD_MESSAGE_LIMIT) {
+        if (!RelayMessageFormatter.isWithinDiscordLimit(message)) {
             warnRateLimited(
                     "outgoing-too-long",
                     "An outgoing message exceeded Discord's 2000-character limit and was dropped.");

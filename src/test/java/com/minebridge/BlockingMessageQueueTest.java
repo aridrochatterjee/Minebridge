@@ -33,6 +33,19 @@ class BlockingMessageQueueTest {
     }
 
     @Test
+    void testMessagesRemainInFifoOrder() {
+        BlockingMessageQueue queue = new BlockingMessageQueue(3);
+
+        assertTrue(queue.offer("first"));
+        assertTrue(queue.offer("second"));
+        assertTrue(queue.offer("third"));
+
+        assertEquals("first", queue.poll());
+        assertEquals("second", queue.poll());
+        assertEquals("third", queue.poll());
+    }
+
+    @Test
     void testFlush() {
         BlockingMessageQueue queue = new BlockingMessageQueue(5);
 

@@ -70,8 +70,14 @@ public final class MineBridgePlugin extends JavaPlugin {
             return;
         }
 
-        getServer().getScheduler().runTaskAsynchronously(this, () ->
-                discordService.reload(result -> deliverReloadResult(callback, result)));
+        try {
+            getServer().getScheduler().runTaskAsynchronously(this, () ->
+                    discordService.reload(
+                            result -> deliverReloadResult(callback, result)));
+        } catch (IllegalPluginAccessException exception) {
+            callback.accept(new ReloadResult(
+                    false, "MineBridge is shutting down; Discord was not reloaded."));
+        }
     }
 
     private void deliverReloadResult(
