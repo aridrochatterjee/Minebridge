@@ -22,19 +22,26 @@ public final class ConfigManager {
             "messages.minecraft-to-discord",
             "messages.discord-to-minecraft",
             "messages.player-join",
-            "messages.player-leave");
+            "messages.player-leave",
+            "messages.server-status",
+            "messages.player-list");
     private static final Map<String, Set<String>> MESSAGE_PLACEHOLDERS = Map.of(
             "messages.minecraft-to-discord", Set.of("player", "message", "timestamp"),
             "messages.discord-to-minecraft",
             Set.of("player", "display_name", "username", "message", "timestamp"),
             "messages.player-join", Set.of("player", "timestamp"),
-            "messages.player-leave", Set.of("player", "timestamp"));
+            "messages.player-leave", Set.of("player", "timestamp"),
+            "messages.server-status", Set.of("online", "max"),
+            "messages.player-list", Set.of("online", "max", "players"));
     private static final int MAX_TEMPLATE_LENGTH = 2000;
     private static final Map<String, String> SAFE_MESSAGES = Map.of(
             "messages.minecraft-to-discord", "**{player}**: {message}",
             "messages.discord-to-minecraft", "&9[Discord] &f{player}: {message}",
             "messages.player-join", "🟢 **{player}** joined the server.",
-            "messages.player-leave", "🔴 **{player}** left the server.");
+            "messages.player-leave", "🔴 **{player}** left the server.",
+            "messages.server-status", "&7Server &8| &a{online}&7/&f{max} players online",
+            "messages.player-list",
+            "&7Online players (&f{online}&7/&f{max}&7): {players}");
 
     private final MineBridgePlugin plugin;
     private volatile Settings settings = new Settings(
@@ -45,7 +52,17 @@ public final class ConfigManager {
             String channelId,
             boolean chatEnabled,
             boolean eventsEnabled,
-            Map<String, String> messages) {
+            Map<String, String> messages,
+            boolean serverStatusEnabled,
+            boolean playerListEnabled) {
+        public Settings(
+                String botToken,
+                String channelId,
+                boolean chatEnabled,
+                boolean eventsEnabled,
+                Map<String, String> messages) {
+            this(botToken, channelId, chatEnabled, eventsEnabled, messages, true, true);
+        }
     }
 
     public record Candidate(Settings settings, List<String> errors) {
@@ -85,9 +102,16 @@ public final class ConfigManager {
         String channelId = readString(configuration, "discord.channel-id", errors);
         Object chatValue = configuration.get("features.chat-relay");
         Object eventsValue = configuration.get("features.join-leave-notifications");
-        errors.addAll(validateFeatureToggles(chatValue, eventsValue));
+        Object serverStatusValue = configuration.get("features.server-status");
+        Object playerListValue = configuration.get("features.player-list");
+        errors.addAll(validateFeatureToggles(
+                chatValue, eventsValue, serverStatusValue, playerListValue));
         Boolean chatEnabled = chatValue instanceof Boolean value ? value : null;
         Boolean eventsEnabled = eventsValue instanceof Boolean value ? value : null;
+        Boolean serverStatusEnabled =
+                serverStatusValue instanceof Boolean value ? value : null;
+        Boolean playerListEnabled =
+                playerListValue instanceof Boolean value ? value : null;
 
         Map<String, String> messages = new java.util.HashMap<>();
         Map<String, Object> messageValues = new java.util.HashMap<>();
@@ -108,7 +132,9 @@ public final class ConfigManager {
                     channelId,
                     chatEnabled,
                     eventsEnabled,
-                    Map.copyOf(messages)), List.of());
+                    Map.copyOf(messages),
+                    serverStatusEnabled,
+                    playerListEnabled), List.of());
         }
         return new Candidate(null, errors);
     }
@@ -141,12 +167,27 @@ public final class ConfigManager {
 
     public static List<String> validateFeatureToggles(
             Object chatRelay, Object joinLeaveNotifications) {
+        return validateFeatureToggles(
+                chatRelay, joinLeaveNotifications, Boolean.TRUE, Boolean.TRUE);
+    }
+
+    public static List<String> validateFeatureToggles(
+            Object chatRelay,
+            Object joinLeaveNotifications,
+            Object serverStatus,
+            Object playerList) {
         List<String> errors = new ArrayList<>();
         if (!(chatRelay instanceof Boolean)) {
             errors.add("features.chat-relay must be true or false.");
         }
         if (!(joinLeaveNotifications instanceof Boolean)) {
             errors.add("features.join-leave-notifications must be true or false.");
+        }
+        if (!(serverStatus instanceof Boolean)) {
+            errors.add("features.server-status must be true or false.");
+        }
+        if (!(playerList instanceof Boolean)) {
+            errors.add("features.player-list must be true or false.");
         }
         return List.copyOf(errors);
     }

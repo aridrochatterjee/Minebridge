@@ -42,17 +42,19 @@ Prefer setting the bot token in the server process environment as
 installations. Do not put a real token in source control, paste it into chat,
 or include it in logs. The shipped config intentionally has an empty token.
 
-The existing config format contains the Discord token and channel ID, four
-message templates, and `features.chat-relay` /
-`features.join-leave-notifications` toggles. Templates must be non-empty, no
-longer than 2000 characters, and use only balanced, supported placeholders:
+The config contains the Discord token and channel ID, six message templates,
+and feature toggles for relays and the server-information commands. Templates
+must be non-empty, no longer than 2000 characters, and use only balanced,
+supported placeholders:
 
-| Template | Supported placeholders |
-| --- | --- |
-| `messages.minecraft-to-discord` | `{player}`, `{message}`, `{timestamp}` |
-| `messages.discord-to-minecraft` | `{player}`, `{display_name}`, `{username}`, `{message}`, `{timestamp}` |
-| `messages.player-join` | `{player}`, `{timestamp}` |
-| `messages.player-leave` | `{player}`, `{timestamp}` |
+| Template | Default | Supported placeholders |
+| --- | --- | --- |
+| `messages.minecraft-to-discord` | `**{player}**: {message}` | `{player}`, `{message}`, `{timestamp}` |
+| `messages.discord-to-minecraft` | `&9[Discord] &f{player}: {message}` | `{player}`, `{display_name}`, `{username}`, `{message}`, `{timestamp}` |
+| `messages.player-join` | `🟢 **{player}** joined the server.` | `{player}`, `{timestamp}` |
+| `messages.player-leave` | `🔴 **{player}** left the server.` | `{player}`, `{timestamp}` |
+| `messages.server-status` | `&7Server &8| &a{online}&7/&f{max} players online` | `{online}`, `{max}` |
+| `messages.player-list` | `&7Online players (&f{online}&7/&f{max}&7): {players}` | `{online}`, `{max}`, `{players}` |
 
 `{timestamp}` is UTC ISO-8601 and is inserted only when present in a template.
 For Discord messages, `{player}` remains the effective author name used by
@@ -75,9 +77,28 @@ candidate will not be applied afterward.
 
 ## Administration and troubleshooting
 
+- `/minebridge server` (alias `/mb server`) shows the online-player count and
+  server capacity.
+- `/minebridge players` (alias `/mb players`) shows the count and online player
+  names. An empty server displays `None`.
+- `features.server-status: true` and `features.player-list: true` independently
+  enable these commands by default. Disabled commands are omitted from
+  MineBridge help and tab completion and report that they are disabled if
+  invoked directly.
+- The existing `features.chat-relay: true` and
+  `features.join-leave-notifications: true` defaults remain unchanged.
+- The server-information message templates are color-code-aware and support
+  the placeholders listed above. The player list joins names in the order
+  returned by the server API, separated by commas; names are display text only.
+- The server and player-list commands have no additional permission gate.
+  `/minebridge reload` remains restricted to `minebridge.admin`, which defaults
+  to server operators.
+- `/minebridge status` (also `/mb status`) remains MineBridge's Discord
+  connection/queue health report. Server information does not replace it.
 - `/minebridge status` reports connection state, cached channel availability,
-  outgoing queue size/capacity, plugin uptime, and both feature toggles. It
-  does not make a REST request to check channel availability.
+  outgoing queue size/capacity, plugin uptime, and the chat-relay and
+  join/leave-notification toggles. It does not make a REST request to check
+  channel availability.
 - `/minebridge reload` is available only to users with `minebridge.admin`
   (default: server operators). Help and tab completion hide it from others.
 - A `config.yml` validation warning identifies the setting to correct without
