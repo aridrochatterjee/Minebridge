@@ -5,11 +5,15 @@ import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -75,6 +79,12 @@ class ConfigValidationTest {
         assertEquals(2, errors.size());
         assertTrue(errors.get(0).contains("features.chat-relay"));
         assertTrue(errors.get(1).contains("features.join-leave-notifications"));
+
+        var phaseSixErrors =
+                ConfigManager.validateFeatureToggles(true, true, "true", null);
+        assertEquals(2, phaseSixErrors.size());
+        assertTrue(phaseSixErrors.get(0).contains("features.server-status"));
+        assertTrue(phaseSixErrors.get(1).contains("features.player-list"));
     }
 
     @Test
@@ -83,7 +93,9 @@ class ConfigValidationTest {
                 "messages.minecraft-to-discord", "x".repeat(2001),
                 "messages.discord-to-minecraft", 12,
                 "messages.player-join", "Joined",
-                "messages.player-leave", "Left"));
+                "messages.player-leave", "Left",
+                "messages.server-status", "{online}/{max}",
+                "messages.player-list", "{players}"));
 
         assertEquals(2, errors.size());
         assertTrue(errors.get(0).contains("messages.minecraft-to-discord"));
@@ -96,14 +108,22 @@ class ConfigValidationTest {
 
         Map<String, Object> templates = new HashMap<>(validTemplates());
         templates.put("messages.player-join", "{player} {message}");
+        templates.put("messages.server-status", "{players}");
+        templates.put("messages.player-list", "{timestamp}");
         String untrustedPlaceholder = "private-template-secret";
         templates.put("messages.discord-to-minecraft", "{" + untrustedPlaceholder + "}");
 
         var errors = ConfigManager.validateMessageTemplates(templates);
 
-        assertEquals(2, errors.size());
+        assertEquals(4, errors.size());
         assertTrue(errors.stream().anyMatch(error ->
                 error.contains("messages.player-join")
+                        && error.contains("unsupported placeholder")));
+        assertTrue(errors.stream().anyMatch(error ->
+                error.contains("messages.server-status")
+                        && error.contains("unsupported placeholder")));
+        assertTrue(errors.stream().anyMatch(error ->
+                error.contains("messages.player-list")
                         && error.contains("unsupported placeholder")));
         assertTrue(errors.stream().anyMatch(error ->
                 error.contains("messages.discord-to-minecraft")
@@ -118,10 +138,12 @@ class ConfigValidationTest {
         templates.put("messages.discord-to-minecraft", "}");
         templates.put("messages.player-join", "  \t");
         templates.put("messages.player-leave", "x".repeat(2001));
+        templates.put("messages.server-status", "{online} {max");
+        templates.put("messages.player-list", "{players}}");
 
         var errors = ConfigManager.validateMessageTemplates(templates);
 
-        assertEquals(4, errors.size());
+        assertEquals(6, errors.size());
         assertTrue(errors.stream().anyMatch(error ->
                 error.contains("messages.minecraft-to-discord")
                         && error.contains("malformed")));
@@ -134,6 +156,12 @@ class ConfigValidationTest {
         assertTrue(errors.stream().anyMatch(error ->
                 error.contains("messages.player-leave")
                         && error.contains("2000-character")));
+        assertTrue(errors.stream().anyMatch(error ->
+                error.contains("messages.server-status")
+                        && error.contains("malformed")));
+        assertTrue(errors.stream().anyMatch(error ->
+                error.contains("messages.player-list")
+                        && error.contains("malformed")));
     }
 
     @Test
@@ -155,6 +183,8 @@ class ConfigValidationTest {
         assertEquals("12345678901234567", candidate.settings().channelId());
         assertTrue(candidate.settings().chatEnabled());
         assertTrue(candidate.settings().eventsEnabled());
+        assertTrue(candidate.settings().serverStatusEnabled());
+        assertTrue(candidate.settings().playerListEnabled());
     }
 
     @Test
@@ -210,16 +240,62 @@ class ConfigValidationTest {
 
         YamlConfiguration invalidConfiguration = validConfiguration();
         invalidConfiguration.set("messages.player-join", "Joined as {username}");
+        invalidConfiguration.set("features.player-list", "enabled");
         var invalid = manager.candidateFrom(invalidConfiguration, null);
 
         assertFalse(invalid.valid());
         assertTrue(invalid.errors().stream()
                 .anyMatch(error -> error.contains("messages.player-join")));
+        assertTrue(invalid.errors().stream()
+                .anyMatch(error -> error.contains("features.player-list")));
         assertThrows(IllegalArgumentException.class, () -> manager.commit(invalid));
         assertEquals(
                 valid.settings().messages(),
                 manager.currentSettings().messages());
         assertEquals("configured-test-token", manager.currentSettings().botToken());
+        assertTrue(manager.currentSettings().serverStatusEnabled());
+        assertTrue(manager.currentSettings().playerListEnabled());
+    }
+
+    @Test
+    void legacyConfigurationUsesBundledPhaseSixDefaults() throws Exception {
+        YamlConfiguration defaults = new YamlConfiguration();
+        try (InputStream stream =
+                     ConfigValidationTest.class.getResourceAsStream("/config.yml")) {
+            assertNotNull(stream);
+            defaults.load(new InputStreamReader(stream, StandardCharsets.UTF_8));
+        }
+
+        YamlConfiguration legacy = validConfiguration();
+        legacy.set("features.server-status", null);
+        legacy.set("features.player-list", null);
+        legacy.set("messages.server-status", null);
+        legacy.set("messages.player-list", null);
+        legacy.setDefaults(defaults);
+
+        var candidate = new ConfigManager(null).candidateFrom(legacy, null);
+
+        assertTrue(candidate.valid(), candidate.errors().toString());
+        assertTrue(candidate.settings().serverStatusEnabled());
+        assertTrue(candidate.settings().playerListEnabled());
+        assertEquals(
+                "&7Server &8| &a{online}&7/&f{max} players online",
+                candidate.settings().messages().get("messages.server-status"));
+        assertEquals(
+                "&7Online players (&f{online}&7/&f{max}&7): {players}",
+                candidate.settings().messages().get("messages.player-list"));
+    }
+
+    @Test
+    void originalSettingsConstructorRemainsAvailableWithEnabledPhaseSixFeatures() {
+        Map<String, String> messages = Map.of("messages.player-join", "Joined");
+
+        ConfigManager.Settings settings = new ConfigManager.Settings(
+                "test-token", "12345678901234567", true, true, messages);
+
+        assertEquals(messages, settings.messages());
+        assertTrue(settings.serverStatusEnabled());
+        assertTrue(settings.playerListEnabled());
     }
 
     private static Map<String, Object> validTemplates() {
@@ -228,7 +304,9 @@ class ConfigValidationTest {
                 "messages.discord-to-minecraft",
                 "{player} {display_name} {username} {message} {timestamp}",
                 "messages.player-join", "{player} {timestamp}",
-                "messages.player-leave", "{player} {timestamp}");
+                "messages.player-leave", "{player} {timestamp}",
+                "messages.server-status", "{online}/{max}",
+                "messages.player-list", "{online}/{max}: {players}");
     }
 
     private static YamlConfiguration validConfiguration() {
@@ -237,11 +315,16 @@ class ConfigValidationTest {
         configuration.set("discord.channel-id", "12345678901234567");
         configuration.set("features.chat-relay", true);
         configuration.set("features.join-leave-notifications", true);
+        configuration.set("features.server-status", true);
+        configuration.set("features.player-list", true);
         Map<String, String> messages = Map.of(
                 "messages.minecraft-to-discord", "**{player}**: {message}",
                 "messages.discord-to-minecraft", "&9[Discord] &f{player}: {message}",
                 "messages.player-join", "🟢 **{player}** joined the server.",
-                "messages.player-leave", "🔴 **{player}** left the server.");
+                "messages.player-leave", "🔴 **{player}** left the server.",
+                "messages.server-status", "&7Server &8| &a{online}&7/&f{max} players online",
+                "messages.player-list",
+                "&7Online players (&f{online}&7/&f{max}&7): {players}");
         messages.forEach(configuration::set);
         return configuration;
     }

@@ -114,4 +114,8 @@ public final class MineBridgePlugin extends JavaPlugin {
     public DiscordService getDiscordService() {
         return discordService;
     }
+
+    public ConfigManager getConfigManager() {
+        return configManager;
+    }
 }

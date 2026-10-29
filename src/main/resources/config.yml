@@ -11,7 +11,12 @@ messages:
   # Join/leave allow {player} and {timestamp} (UTC ISO-8601).
   player-join: "🟢 **{player}** joined the server."
   player-leave: "🔴 **{player}** left the server."
+  # Server status allows {online} and {max}; player list also allows {players}.
+  server-status: "&7Server &8| &a{online}&7/&f{max} players online"
+  player-list: "&7Online players (&f{online}&7/&f{max}&7): {players}"
 
 features:
   chat-relay: true
   join-leave-notifications: true
+  server-status: true
+  player-list: true

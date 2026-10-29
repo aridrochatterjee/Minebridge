@@ -8,7 +8,7 @@ author: Horizon
 commands:
   minebridge:
     description: Manage the MineBridge Discord integration
-    usage: /minebridge <help|status|reload>
+    usage: /minebridge <help|status|server|players|reload>
     aliases: [mb]
 
 permissions:
