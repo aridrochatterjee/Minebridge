@@ -300,14 +300,17 @@ public final class DiscordService {
             return;
         }
 
+        JDA current;
+        TextChannel channel;
+        String message;
         synchronized (lifecycleLock) {
-            JDA current = jda;
+            current = jda;
             if (current == null || current.getStatus() != JDA.Status.CONNECTED) {
                 sending.set(false);
                 return;
             }
 
-            TextChannel channel = current.getTextChannelById(config.getChannelId());
+            channel = current.getTextChannelById(config.getChannelId());
             if (channel == null) {
                 sending.set(false);
                 warnRateLimited(
@@ -316,31 +319,32 @@ public final class DiscordService {
                 return;
             }
 
-            String message = outgoingQueue.poll();
+            message = outgoingQueue.poll();
             if (message == null) {
                 sending.set(false);
                 return;
             }
 
-            long sendId = sendSequence.incrementAndGet();
-            activeSend = sendId;
-            try {
-                channel.sendMessage(message)
-                        .setAllowedMentions(List.of())
-                        .queue(
-                                ignored -> finishSend(sendId),
-                                error -> {
-                                    warnRateLimited(
-                                            "outgoing-api-rejected",
-                                            "Discord rejected an outgoing message; it was dropped.");
-                                    finishSend(sendId);
-                                });
-            } catch (RuntimeException exception) {
-                warnRateLimited(
-                        "outgoing-submit-failed",
-                        "Could not submit an outgoing message to Discord; it was dropped.");
-                finishSend(sendId);
-            }
+            activeSend = sendSequence.incrementAndGet();
+        }
+
+        long sendId = activeSend;
+        try {
+            channel.sendMessage(message)
+                    .setAllowedMentions(List.of())
+                    .queue(
+                            ignored -> finishSend(sendId),
+                            error -> {
+                                warnRateLimited(
+                                        "outgoing-api-rejected",
+                                        "Discord rejected an outgoing message; it was dropped.");
+                                finishSend(sendId);
+                            });
+        } catch (RuntimeException exception) {
+            warnRateLimited(
+                    "outgoing-submit-failed",
+                    "Could not submit an outgoing message to Discord; it was dropped.");
+            finishSend(sendId);
         }
     }
 

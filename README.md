@@ -26,6 +26,52 @@ Paper server's `plugins/` directory, then start the server once to create
 `plugins/MineBridge/config.yml`. Stop the server before replacing the JAR during
 an upgrade.
 
+## Testing and releases
+
+Run the full local verification suite with `./gradlew clean test build`.
+The GitHub Actions workflow runs the build on Java 21 for pushes and pull
+requests and retains the generated plugin JAR as a CI artifact. It does not
+deploy the plugin. This build/test gate is required and does not require
+repository secrets, including for forked pull requests.
+Dependabot checks Gradle and GitHub Actions dependencies weekly; review its
+pull requests with the normal CI results before merging.
+
+Before a release, update `version` in `build.gradle` and `plugin.yml`, add a
+dated entry to `CHANGELOG.md`, then build and test from a clean checkout. Test
+the resulting JAR against the intended Paper/Spigot and Discord test server.
+For rollback, stop the server, restore the previous JAR and the backed-up
+`config.yml`, then start the server and check `/minebridge status`.
+
+## Dependency vulnerability scanning
+
+Run `./gradlew --no-daemon dependencyCheckAnalyze` to scan resolved production
+runtime dependencies, including JDA and its transitive dependencies. The
+Spigot API remains `compileOnly` and is not included in the runtime scan or
+shaded plugin. OWASP Dependency-Check writes HTML and JSON reports to
+`build/reports/dependency-check/`, including CVE identifiers, affected
+dependency versions, CVSS severity, and vulnerability descriptions/references
+that provide remediation context where available. Review the referenced
+advisory for the fixed version before changing dependencies; updates are not
+automatic. The task fails the build when a finding has CVSS 7.0 or higher.
+
+The GitHub Actions verification workflow runs this scan only when the
+nonempty `NVD_API_KEY` Actions secret is available, and retains generated
+reports as an artifact even if that scan fails. When the secret is unavailable
+(including forked pull requests), CI explicitly skips the scan and warns that
+dependency vulnerability status remains unverified; the required build/test
+gate still runs. Locally, export the same variable before running the scan.
+Never commit or print the key. The first scan downloads vulnerability data and
+may take several minutes; network outages or NVD rate limits can prevent
+completion. A skipped or failed scan is not a passed vulnerability assessment.
+
+The scan also updates CISA's Known Exploited Vulnerabilities (KEV) catalog by
+default. If a restricted network blocks that auxiliary feed, the scan can be
+run with `-PdependencyCheckKevEnabled=false`; this keeps NVD CVE analysis
+enabled but omits CISA known-exploited enrichment, reducing prioritization
+coverage. Re-enable the default or configure an approved KEV mirror when
+available. Do not treat a scan with KEV disabled as having full CISA KEV
+coverage.
+
 ## Discord setup and configuration
 
 Set `discord.channel-id` in `plugins/MineBridge/config.yml` to the 17-20 digit

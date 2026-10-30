@@ -4,6 +4,7 @@ import com.minebridge.MineBridgePlugin;
 import com.minebridge.config.ConfigManager;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.time.Instant;
 
@@ -64,8 +65,16 @@ public final class DiscordMessageListener extends ListenerAdapter {
                 Instant.now().toString());
 
         if (plugin.isEnabled()) {
-            plugin.getServer().getScheduler().runTask(plugin,
-                    () -> plugin.getServer().broadcastMessage(formatted));
+            try {
+                plugin.getServer().getScheduler().runTask(plugin,
+                        () -> {
+                            if (plugin.isEnabled()) {
+                                plugin.getServer().broadcastMessage(formatted);
+                            }
+                        });
+            } catch (IllegalPluginAccessException exception) {
+                // The server is shutting down; do not deliver stale chat or fail JDA's event thread.
+            }
         }
     }
 

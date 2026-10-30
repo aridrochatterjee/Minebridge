@@ -2,6 +2,7 @@
 plugins {
     id 'java'
     id 'com.gradleup.shadow' version '8.3.6'
+    id 'org.owasp.dependencycheck' version '13.0.0'
 }
 
 group = 'com.minebridge'
@@ -49,4 +50,31 @@ tasks.test {
 
 tasks.build {
     dependsOn tasks.shadowJar
+}
+
+def nvdApiKey = providers.environmentVariable('NVD_API_KEY').orNull
+def dependencyCheckKevEnabledValue = providers.gradleProperty('dependencyCheckKevEnabled').orNull
+if (dependencyCheckKevEnabledValue != null
+        && !dependencyCheckKevEnabledValue.equalsIgnoreCase('true')
+        && !dependencyCheckKevEnabledValue.equalsIgnoreCase('false')) {
+    throw new GradleException('dependencyCheckKevEnabled must be true or false')
+}
+def dependencyCheckKevEnabled = dependencyCheckKevEnabledValue == null
+        || dependencyCheckKevEnabledValue.equalsIgnoreCase('true')
+
+dependencyCheck {
+    scanConfigurations = ['runtimeClasspath']
+    formats = ['HTML', 'JSON']
+    failBuildOnCVSS = 7.0
+    outputDirectory = layout.buildDirectory.dir('reports/dependency-check')
+    nvd {
+        if (nvdApiKey != null && !nvdApiKey.isBlank()) {
+            apiKey = nvdApiKey
+        }
+    }
+    analyzers {
+        kev {
+            enabled = dependencyCheckKevEnabled
+        }
+    }
 }

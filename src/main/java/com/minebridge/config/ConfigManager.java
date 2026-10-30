@@ -55,6 +55,10 @@ public final class ConfigManager {
             Map<String, String> messages,
             boolean serverStatusEnabled,
             boolean playerListEnabled) {
+        public Settings {
+            messages = Map.copyOf(messages);
+        }
+
         public Settings(
                 String botToken,
                 String channelId,

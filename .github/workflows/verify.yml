@@ -1,0 +1,47 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      HAS_NVD_API_KEY: ${{ secrets.NVD_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew --no-daemon clean build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MineBridge-plugin
+          path: |
+            build/libs/MineBridge-*.jar
+            !build/libs/*-plain.jar
+          if-no-files-found: error
+      - name: Report skipped dependency vulnerability scan
+        if: env.HAS_NVD_API_KEY != 'true'
+        run: >-
+          echo "::warning::Dependency vulnerability scanning was skipped because
+          NVD_API_KEY is unavailable. Dependency vulnerability status remains
+          unverified."
+      - name: Scan runtime dependencies
+        if: env.HAS_NVD_API_KEY == 'true'
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: ./gradlew --no-daemon dependencyCheckAnalyze
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && env.HAS_NVD_API_KEY == 'true' }}
+        with:
+          name: dependency-check-report
+          path: build/reports/dependency-check/
+          if-no-files-found: warn
