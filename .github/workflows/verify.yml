@@ -21,7 +21,7 @@ jobs:
           cache: gradle
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew --no-daemon clean build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MineBridge-plugin
           path: |
@@ -39,7 +39,7 @@ jobs:
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: ./gradlew --no-daemon dependencyCheckAnalyze
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ always() && env.HAS_NVD_API_KEY == 'true' }}
         with:
           name: dependency-check-report
