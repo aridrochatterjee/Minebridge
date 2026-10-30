@@ -77,6 +77,35 @@ class DiscordReloadConcurrencyTest {
     }
 
     @Test
+    void failedReloadLeavesPreviousClientAndOutboundSendActive() {
+        ReloadRequestGate reloads = new ReloadRequestGate();
+        ActiveClientSnapshot<FakeClient> activeSnapshot = new ActiveClientSnapshot<>();
+        OutboundSendGate<FakeClient> sendGate = new OutboundSendGate<>();
+        FakeClient active = new FakeClient();
+        FakeClient failedCandidate = new FakeClient();
+        ConfigManager.Settings activeSettings = settings("active", "active template");
+        ConfigManager.Settings candidateSettings = settings("candidate", "candidate template");
+        active.activate();
+        activeSnapshot.activate(active, activeSettings);
+        long activeSend = sendGate.tryBegin(active);
+        long staleRequest = reloads.nextRequest();
+        long failedRequest = reloads.nextRequest();
+
+        assertFalse(reloads.runIfCurrent(staleRequest, () -> {
+            activeSnapshot.activate(failedCandidate, candidateSettings);
+            sendGate.clientReplaced(active);
+        }));
+        assertTrue(reloads.isCurrent(failedRequest));
+        assertSame(activeSettings, activeSnapshot.capture(active));
+        assertNull(activeSnapshot.capture(failedCandidate));
+        assertEquals(0, sendGate.tryBegin(active));
+        assertNull(sendGate.finish(activeSend));
+        assertTrue(sendGate.tryBegin(active) > activeSend);
+        assertFalse(active.closed());
+        assertFalse(failedCandidate.active());
+    }
+
+    @Test
     void shutdownInvalidatesPendingRequestAndCandidate() {
         ReloadRequestGate gate = new ReloadRequestGate();
         FakeClient active = new FakeClient();

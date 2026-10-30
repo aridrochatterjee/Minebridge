@@ -1,24 +1,17 @@
 package com.minebridge.discord;
 
-import com.minebridge.MineBridgePlugin;
 import com.minebridge.config.ConfigManager;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
-import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.time.Instant;
 
 public final class DiscordMessageListener extends ListenerAdapter {
 
-    private final MineBridgePlugin plugin;
     private final DiscordService discord;
-    private final ConfigManager config;
 
-    public DiscordMessageListener(
-            MineBridgePlugin plugin, DiscordService discord, ConfigManager config) {
-        this.plugin = plugin;
+    public DiscordMessageListener(DiscordService discord) {
         this.discord = discord;
-        this.config = config;
     }
 
     @Override
@@ -56,26 +49,16 @@ public final class DiscordMessageListener extends ListenerAdapter {
         String template = settings.messages().getOrDefault(
                 "messages.discord-to-minecraft", "&9[Discord] &f{player}: {message}");
 
-        String formatted = RelayMessageFormatter.formatForMinecraft(
-                config.color(template),
-                player,
-                displayName,
-                username,
-                content,
-                Instant.now().toString());
+        discord.receiveIncoming(
+                event.getAuthor().getId(),
+                new InboundMessageProcessor.ChatMessage(
+                        template,
+                        player,
+                        displayName,
+                        username,
+                        content,
+                        Instant.now().toString()));
 
-        if (plugin.isEnabled()) {
-            try {
-                plugin.getServer().getScheduler().runTask(plugin,
-                        () -> {
-                            if (plugin.isEnabled()) {
-                                plugin.getServer().broadcastMessage(formatted);
-                            }
-                        });
-            } catch (IllegalPluginAccessException exception) {
-                // The server is shutting down; do not deliver stale chat or fail JDA's event thread.
-            }
-        }
     }
 
 }

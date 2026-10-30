@@ -9,10 +9,9 @@ import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 public final class DiscordService {
@@ -28,8 +27,8 @@ public final class DiscordService {
     private final Object lifecycleLock = new Object();
     private final ReloadRequestGate reloadRequests = new ReloadRequestGate();
     private final ActiveClientSnapshot<JDA> incomingClient = new ActiveClientSnapshot<>();
-    private final AtomicBoolean sending = new AtomicBoolean();
-    private final AtomicLong sendSequence = new AtomicLong();
+    private final OutboundSendGate<JDA> outboundSendGate = new OutboundSendGate<>();
+    private final InboundMessageProcessor<InboundMessageProcessor.ChatMessage> inboundProcessor;
     private final RateLimitedDiagnostics diagnostics =
             new RateLimitedDiagnostics(DIAGNOSTIC_INTERVAL_NANOS);
 
@@ -38,7 +37,6 @@ public final class DiscordService {
     private volatile boolean stopping;
     private volatile String lastConnectionState = "NOT_STARTED";
     private boolean starting;
-    private long activeSend;
     private long connectionDeadlineNanos;
     private boolean connectionFailureReported;
     private boolean hasConnected;
@@ -51,6 +49,24 @@ public final class DiscordService {
     public DiscordService(MineBridgePlugin plugin, ConfigManager config) {
         this.plugin = plugin;
         this.config = config;
+        this.inboundProcessor = new InboundMessageProcessor<>(
+                InboundMessageProcessor.DEFAULT_CAPACITY,
+                InboundMessageProcessor.DEFAULT_BATCH_SIZE,
+                new InboundRateLimiter(
+                        InboundMessageProcessor.DEFAULT_PER_USER_BURST,
+                        InboundMessageProcessor.DEFAULT_PER_USER_REFILL_NANOS,
+                        InboundMessageProcessor.DEFAULT_GLOBAL_BURST,
+                        InboundMessageProcessor.DEFAULT_GLOBAL_REFILL_NANOS,
+                        System::nanoTime),
+                task -> {
+                    try {
+                        plugin.getServer().getScheduler().runTask(plugin, task);
+                        return true;
+                    } catch (IllegalPluginAccessException exception) {
+                        return false;
+                    }
+                },
+                this::broadcastIncoming);
     }
 
     public boolean start() {
@@ -296,39 +312,42 @@ public final class DiscordService {
 
     public void processOutgoing() {
         checkConnectionHealth();
-        if (stopping || !sending.compareAndSet(false, true)) {
+        if (stopping) {
             return;
         }
 
         JDA current;
         TextChannel channel;
         String message;
+        long sendId;
         synchronized (lifecycleLock) {
+            if (stopping) {
+                return;
+            }
             current = jda;
             if (current == null || current.getStatus() != JDA.Status.CONNECTED) {
-                sending.set(false);
                 return;
             }
 
             channel = current.getTextChannelById(config.getChannelId());
             if (channel == null) {
-                sending.set(false);
                 warnRateLimited(
                         "channel-unavailable",
                         "The configured Discord channel is unavailable in JDA's cache; queued messages are retained.");
                 return;
             }
 
-            message = outgoingQueue.poll();
-            if (message == null) {
-                sending.set(false);
+            sendId = outboundSendGate.tryBegin(current);
+            if (sendId == 0) {
                 return;
             }
-
-            activeSend = sendSequence.incrementAndGet();
+            message = outgoingQueue.poll();
+            if (message == null) {
+                outboundSendGate.finish(sendId);
+                return;
+            }
         }
 
-        long sendId = activeSend;
         try {
             channel.sendMessage(message)
                     .setAllowedMentions(List.of())
@@ -357,9 +376,28 @@ public final class DiscordService {
         return incomingClient.capture(source);
     }
 
+    public void receiveIncoming(
+            String userId, InboundMessageProcessor.ChatMessage message) {
+        if (stopping) {
+            return;
+        }
+        InboundMessageProcessor.SubmissionResult result =
+                inboundProcessor.submit(userId, message);
+        if (result == InboundMessageProcessor.SubmissionResult.QUEUE_FULL) {
+            warnRateLimited(
+                    "inbound-dropped",
+                    "The inbound Discord queue is full; a new message was dropped.");
+        } else if (result == InboundMessageProcessor.SubmissionResult.SCHEDULER_UNAVAILABLE) {
+            warnRateLimited(
+                    "inbound-scheduler-unavailable",
+                    "Could not schedule inbound Discord messages; the inbound queue was closed.");
+        }
+    }
+
     public void stop() {
         JDA previous;
         JDA previousPending;
+        JDA retiring;
         Consumer<ReloadResult> pending;
         Consumer<ReloadResult> starting;
         synchronized (lifecycleLock) {
@@ -378,8 +416,8 @@ public final class DiscordService {
             starting = startupCallback;
             startupCallback = null;
             lastConnectionState = "SHUTDOWN";
-            activeSend = sendSequence.incrementAndGet();
-            sending.set(false);
+            retiring = outboundSendGate.close();
+            inboundProcessor.close();
         }
         outgoingQueue.close();
         if (previous != null) {
@@ -387,6 +425,9 @@ public final class DiscordService {
         }
         if (previousPending != null) {
             previousPending.shutdownNow();
+        }
+        if (retiring != null) {
+            retiring.shutdownNow();
         }
         complete(pending, new ReloadResult(false, "MineBridge shut down before Discord connected."));
         complete(starting, new ReloadResult(false, "MineBridge shut down before Discord connected."));
@@ -396,6 +437,7 @@ public final class DiscordService {
         Consumer<ReloadResult> callback;
         Consumer<ReloadResult> replacedStartupCallback = null;
         JDA previous = null;
+        JDA previousToShutdown = null;
         JDA discarded = null;
         boolean stalePending = false;
         synchronized (lifecycleLock) {
@@ -422,8 +464,9 @@ public final class DiscordService {
                     pendingJda = null;
                     pendingSettings = null;
                     latestReloadInProgress = false;
-                    activeSend = sendSequence.incrementAndGet();
-                    sending.set(false);
+                    if (previous != null) {
+                        previousToShutdown = outboundSendGate.clientReplaced(previous);
+                    }
                     lastConnectionState = "CONNECTED";
                     hasConnected = true;
                     connectionFailureReported = false;
@@ -445,8 +488,8 @@ public final class DiscordService {
         if (discarded != null) {
             discarded.shutdownNow();
         }
-        if (!stalePending && previous != null) {
-            previous.shutdownNow();
+        if (!stalePending && previousToShutdown != null) {
+            previousToShutdown.shutdownNow();
         }
         if (stalePending) {
             complete(callback, new ReloadResult(false,
@@ -566,7 +609,7 @@ public final class DiscordService {
                 .setMemberCachePolicy(MemberCachePolicy.NONE)
                 .setActivity(Activity.playing("Minecraft"))
                 .addEventListeners(
-                        new DiscordMessageListener(plugin, this, config),
+                        new DiscordMessageListener(this),
                         new DiscordGatewayListener(this))
                 .build();
     }
@@ -607,10 +650,25 @@ public final class DiscordService {
     }
 
     private void finishSend(long sendId) {
-        synchronized (lifecycleLock) {
-            if (activeSend == sendId) {
-                sending.set(false);
-            }
+        JDA retired = outboundSendGate.finish(sendId);
+        if (retired != null) {
+            retired.shutdownNow();
+        }
+    }
+
+    private void broadcastIncoming(InboundMessageProcessor.ChatMessage message) {
+        if (!plugin.isEnabled()) {
+            return;
+        }
+        String formatted = RelayMessageFormatter.formatForMinecraft(
+                config.color(message.template()),
+                message.player(),
+                message.displayName(),
+                message.username(),
+                message.content(),
+                message.timestamp());
+        if (plugin.isEnabled()) {
+            plugin.getServer().broadcastMessage(formatted);
         }
     }
 

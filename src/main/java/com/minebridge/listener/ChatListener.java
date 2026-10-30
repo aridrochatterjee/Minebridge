@@ -9,6 +9,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 
 import java.time.Instant;
+import java.util.function.Consumer;
 
 public final class ChatListener implements Listener {
 
@@ -34,10 +35,25 @@ public final class ChatListener implements Listener {
         String template = config.message(
                 "messages.minecraft-to-discord", "**{player}**: {message}");
 
-        discord.send(RelayMessageFormatter.formatForDiscord(
+        relayIfNonBlank(
                 template,
                 event.getPlayer().getName(),
                 event.getMessage(),
-                Instant.now().toString()));
+                Instant.now().toString(),
+                discord::send);
+    }
+
+    static boolean relayIfNonBlank(
+            String template,
+            String player,
+            String message,
+            String timestamp,
+            Consumer<String> sender) {
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+        sender.accept(RelayMessageFormatter.formatForDiscord(
+                template, player, message, timestamp));
+        return true;
     }
 }

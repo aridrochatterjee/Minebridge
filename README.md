@@ -205,3 +205,11 @@ remain FIFO while queued, and only one Discord send is in flight at a time.
 The in-memory queue is discarded on plugin shutdown. A message accepted by
 Discord but whose success callback is interrupted by shutdown has an
 indeterminate delivery result.
+
+Discord-to-Minecraft messages use a separate bounded FIFO queue with capacity
+100 and are drained on the Minecraft thread in batches of at most 10 per tick.
+When the queue is full, the newest message is dropped and a rate-limited warning
+is logged. Inbound relay also limits each Discord user to a burst of 3 messages,
+replenishing to full over 5 seconds, and all users together to a burst of 10
+messages, replenishing to full over 1 second. Rate-limited messages are silently
+discarded. Pending inbound messages are discarded when the plugin shuts down.
