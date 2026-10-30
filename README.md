@@ -4,43 +4,58 @@ MineBridge relays Minecraft chat and player join/leave notifications to a
 configured Discord text channel, and relays human messages from that channel
 back to Minecraft.
 
+It also provides Minecraft commands for Discord connection status and server
+information. Discord messages are accepted only from the configured guild
+channel; bot and webhook messages are ignored.
+
+Current features:
+
+- Bidirectional chat relay and player join/leave notifications.
+- In-game Discord status, server capacity, and online-player commands.
+- Configurable message templates, with validated placeholders and safe handling
+  of user-provided text.
+
 ## Requirements and compatibility
 
-- Java 21 or newer to run the plugin.
-- The build compiles against Spigot API `1.20.6-R0.1-SNAPSHOT` and declares
-  `api-version: '1.20'`.
-- The repository does not include a live-server compatibility matrix. These
-  build settings do not certify any Paper release; test the plugin on the exact
-  server version you intend to run.
+- Java 21 or newer is required to run the plugin.
+- The project compiles against Spigot API `1.20.6-R0.1-SNAPSHOT` and declares
+  `api-version: '1.20'`; Spigot 1.20.6 is the configured build target.
+- No live-server compatibility matrix is maintained. Paper compatibility and
+  other server versions are not certified; test the exact server build you
+  intend to run.
 
 ## Build and install
 
 Build the shaded plugin JAR from the repository root:
 
 ```sh
-./gradlew clean test build
+./gradlew build
 ```
 
-The distributable is `build/libs/MineBridge-1.0.0.jar`. Place that JAR in the
-Paper server's `plugins/` directory, then start the server once to create
-`plugins/MineBridge/config.yml`. Stop the server before replacing the JAR during
-an upgrade.
+The distributable is `build/libs/MineBridge-1.0.0.jar` for the current project
+version. Place it in the `plugins/` directory of the server you have chosen to
+test, then start the server once to create `plugins/MineBridge/config.yml`.
+Stop the server before replacing the JAR during an upgrade.
 
 ## Testing and releases
 
-Run the full local verification suite with `./gradlew clean test build`.
+Run the test suite with `./gradlew test`. Run the full build, including tests
+and the shaded plugin JAR, with `./gradlew build`; use `./gradlew clean build`
+for a clean build.
 The GitHub Actions workflow runs the build on Java 21 for pushes and pull
 requests and retains the generated plugin JAR as a CI artifact. It does not
-deploy the plugin. This build/test gate is required and does not require
-repository secrets, including for forked pull requests.
+deploy the plugin. Dependency vulnerability scanning runs only when the
+`NVD_API_KEY` secret is available; otherwise the workflow skips it and reports
+that dependency vulnerability status is unverified.
 Dependabot checks Gradle and GitHub Actions dependencies weekly; review its
 pull requests with the normal CI results before merging.
 
 Before a release, update `version` in `build.gradle` and `plugin.yml`, add a
-dated entry to `CHANGELOG.md`, then build and test from a clean checkout. Test
-the resulting JAR against the intended Paper/Spigot and Discord test server.
-For rollback, stop the server, restore the previous JAR and the backed-up
-`config.yml`, then start the server and check `/minebridge status`.
+dated entry to [CHANGELOG.md](CHANGELOG.md), then build and test from a clean
+checkout. Review the [1.0.1 release-note draft](RELEASE_NOTES_1.0.1.md) and test
+the resulting JAR against the intended Minecraft server and a Discord test
+server. For rollback, stop the server, restore the previous JAR and the
+backed-up `config.yml`, then start the server and check `/minebridge status`.
 
 ## Dependency vulnerability scanning
 
@@ -58,8 +73,8 @@ The GitHub Actions verification workflow runs this scan only when the
 nonempty `NVD_API_KEY` Actions secret is available, and retains generated
 reports as an artifact even if that scan fails. When the secret is unavailable
 (including forked pull requests), CI explicitly skips the scan and warns that
-dependency vulnerability status remains unverified; the required build/test
-gate still runs. Locally, export the same variable before running the scan.
+dependency vulnerability status remains unverified; the workflow's build/test
+job still runs. Locally, export the same variable before running the scan.
 Never commit or print the key. The first scan downloads vulnerability data and
 may take several minutes; network outages or NVD rate limits can prevent
 completion. A skipped or failed scan is not a passed vulnerability assessment.
@@ -74,13 +89,21 @@ coverage.
 
 ## Discord setup and configuration
 
+1. Create a Discord bot and invite it to the server containing the target
+   channel.
+2. Grant the bot **View Channel** and **Send Messages** in that channel. No
+   additional Discord permissions are required by the documented relay
+   features.
+3. Enable the **Message Content Intent** for the bot in the Discord Developer
+   Portal. MineBridge enables the `GUILD_MESSAGES` and privileged
+   `MESSAGE_CONTENT` gateway intents; it does not require member presences or a
+   populated member cache.
+4. Configure the channel ID and bot token as described below, then start or
+   reload MineBridge.
+
 Set `discord.channel-id` in `plugins/MineBridge/config.yml` to the 17-20 digit
 ID of the target Discord text channel. Enable Developer Mode in Discord to copy
-the channel ID. The bot needs access to that channel with permission to view it
-and send messages. MineBridge enables the `GUILD_MESSAGES` and privileged
-`MESSAGE_CONTENT` gateway intents; enable Message Content Intent for the bot in
-the Discord Developer Portal. The implementation does not require member
-presences or a populated member cache.
+the channel ID.
 
 Prefer setting the bot token in the server process environment as
 `MINEBRIDGE_BOT_TOKEN`. A non-blank environment value takes precedence over
@@ -93,13 +116,22 @@ and feature toggles for relays and the server-information commands. Templates
 must be non-empty, no longer than 2000 characters, and use only balanced,
 supported placeholders:
 
+| Setting | Default | Description |
+| --- | --- | --- |
+| `discord.bot-token` | `""` | Bot token; use `MINEBRIDGE_BOT_TOKEN` instead when possible. |
+| `discord.channel-id` | `""` | Required 17-20 digit ID of the Discord text channel. |
+| `features.chat-relay` | `true` | Enable Minecraft and Discord chat relay. |
+| `features.join-leave-notifications` | `true` | Enable player join/leave notifications. |
+| `features.server-status` | `true` | Enable `/minebridge server`. |
+| `features.player-list` | `true` | Enable `/minebridge players`. |
+
 | Template | Default | Supported placeholders |
 | --- | --- | --- |
 | `messages.minecraft-to-discord` | `**{player}**: {message}` | `{player}`, `{message}`, `{timestamp}` |
 | `messages.discord-to-minecraft` | `&9[Discord] &f{player}: {message}` | `{player}`, `{display_name}`, `{username}`, `{message}`, `{timestamp}` |
 | `messages.player-join` | `🟢 **{player}** joined the server.` | `{player}`, `{timestamp}` |
 | `messages.player-leave` | `🔴 **{player}** left the server.` | `{player}`, `{timestamp}` |
-| `messages.server-status` | `&7Server &8| &a{online}&7/&f{max} players online` | `{online}`, `{max}` |
+| `messages.server-status` | `&7Server &8\| &a{online}&7/&f{max} players online` | `{online}`, `{max}` |
 | `messages.player-list` | `&7Online players (&f{online}&7/&f{max}&7): {players}` | `{online}`, `{max}`, `{players}` |
 
 `{timestamp}` is UTC ISO-8601 and is inserted only when present in a template.
@@ -121,12 +153,25 @@ newer configuration is invalid or its Discord connection fails. A failed
 attempt leaves the currently active connection and settings in place; an older
 candidate will not be applied afterward.
 
+Inbound queue capacity, per-tick batch size, and rate limits currently use
+built-in defaults rather than configuration options: the queue holds 100
+messages, at most 10 are processed per tick, each Discord user has a burst of
+3 messages replenished over 5 seconds, and all users share a burst of 10
+messages replenished over 1 second.
+
 ## Administration and troubleshooting
 
-- `/minebridge server` (alias `/mb server`) shows the online-player count and
-  server capacity.
-- `/minebridge players` (alias `/mb players`) shows the count and online player
-  names. An empty server displays `None`.
+- The root command is `/minebridge` (alias `/mb`); running it without a
+  subcommand is the same as `/minebridge help`.
+
+| Command | Permission and behavior |
+| --- | --- |
+| `/minebridge help` | Lists available commands; no additional permission required. |
+| `/minebridge status` | Shows Discord connection and outgoing-queue status; no additional permission required. |
+| `/minebridge server` | No additional permission; shows online count and capacity when `features.server-status` is `true` (default). |
+| `/minebridge players` | No additional permission; shows online count and names when `features.player-list` is `true` (default). |
+| `/minebridge reload` | Reloads configuration and replaces the Discord connection after readiness; requires `minebridge.admin` (default: operators). |
+
 - `features.server-status: true` and `features.player-list: true` independently
   enable these commands by default. Disabled commands are omitted from
   MineBridge help and tab completion and report that they are disabled if
@@ -136,17 +181,12 @@ candidate will not be applied afterward.
 - The server-information message templates are color-code-aware and support
   the placeholders listed above. The player list joins names in the order
   returned by the server API, separated by commas; names are display text only.
-- The server and player-list commands have no additional permission gate.
-  `/minebridge reload` remains restricted to `minebridge.admin`, which defaults
-  to server operators.
-- `/minebridge status` (also `/mb status`) remains MineBridge's Discord
-  connection/queue health report. Server information does not replace it.
 - `/minebridge status` reports connection state, cached channel availability,
   outgoing queue size/capacity, plugin uptime, and the chat-relay and
   join/leave-notification toggles. It does not make a REST request to check
   channel availability.
-- `/minebridge reload` is available only to users with `minebridge.admin`
-  (default: server operators). Help and tab completion hide it from others.
+- Help and tab completion hide `/minebridge reload` from users without
+  `minebridge.admin`.
 - A `config.yml` validation warning identifies the setting to correct without
   echoing the bot token. For YAML parse/read failures, check that the file is
   valid YAML and readable by the server process.
@@ -198,6 +238,10 @@ user-controlled Minecraft text is escaped, while trusted configured templates
 retain their formatting. Other Unicode, including emoji, is preserved. Discord
 message syntax such as `<@id>` is shown as text in Minecraft and does not
 execute commands or formatting.
+
+Incoming Discord text is sanitized, and empty or over-2000-character messages
+are ignored. Only messages from the configured guild channel are relayed; bot
+and webhook messages are filtered out.
 
 API-rejected messages are not retried, to avoid duplicate delivery; therefore a
 network failure after JDA accepts a request can lose that message. Messages

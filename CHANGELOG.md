@@ -7,7 +7,29 @@ release.
 
 ## Unreleased
 
+### Added
+
 - Add continuous integration for Java 21 builds and tests.
+- Add regression and concurrency tests for outbound delivery, inbound
+  processing, reloads, and blank Minecraft chat.
+
+### Changed
+
 - Preserve immutable configuration snapshots across Discord client reloads.
-- Avoid scheduling inbound Discord chat after the Minecraft server has begun
-  shutting down.
+- Process Discord-to-Minecraft messages through a bounded FIFO queue.
+- Drop new inbound messages when the queue is full and emit rate-limited
+  diagnostics for queue overflow.
+
+### Fixed
+
+- Track ownership of in-flight Discord sends so client replacement cannot let
+  an older send callback release a newer send's gate.
+- Avoid scheduling or processing inbound Discord chat after shutdown begins;
+  pending inbound messages are discarded during shutdown.
+- Ignore empty and whitespace-only Minecraft chat messages when relaying to
+  Discord.
+
+### Security
+
+- Limit inbound Discord chat per user and globally to reduce the impact of
+  message floods.
