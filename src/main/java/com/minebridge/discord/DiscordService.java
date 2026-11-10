@@ -11,9 +11,9 @@ import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
+import net.dv8tion.jda.api.utils.messages.MessageCreateData;
 import org.bukkit.plugin.IllegalPluginAccessException;
 
-import java.awt.Color;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -366,12 +366,12 @@ public final class DiscordService {
         });
     }
 
-    public void sendEmbed(String channelId, MessageEmbed embed) {
+    public void sendEventEmbed(String channelId, MessageEmbed embed) {
         if (embed == null) {
             return;
         }
-        sendNotificationRequest(channelId, channel -> channel.sendMessageEmbeds(embed)
-                .setAllowedMentions(List.of())
+        MessageCreateData message = DiscordEmbedFactory.createMessageData(embed);
+        sendNotificationRequest(channelId, channel -> channel.sendMessage(message)
                 .queue(
                         ignored -> { },
                         error -> warnRateLimited(

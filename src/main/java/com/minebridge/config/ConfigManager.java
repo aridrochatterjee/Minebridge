@@ -3,6 +3,7 @@ package com.minebridge.config;
 import com.minebridge.MineBridgePlugin;
 import com.minebridge.achievement.AdvancementCategory;
 import com.minebridge.death.DeathCategory;
+import com.minebridge.discord.DiscordEmbedFactory;
 import org.bukkit.ChatColor;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.InvalidConfigurationException;
@@ -57,7 +58,7 @@ public final class ConfigManager {
     private final MineBridgePlugin plugin;
     private volatile Settings settings = new Settings(
             "", "", true, true, SAFE_MESSAGES, true, true,
-            defaultDeathSettings(), defaultAchievementSettings());
+            defaultDeathSettings(), defaultAchievementSettings(), defaultDiscordEventsSettings());
 
     public record Settings(
             String botToken,
@@ -68,7 +69,8 @@ public final class ConfigManager {
             boolean serverStatusEnabled,
             boolean playerListEnabled,
             DeathSettings deathMessages,
-            AchievementSettings achievements) {
+            AchievementSettings achievements,
+            DiscordEventsSettings discordEvents) {
         public Settings {
             messages = Map.copyOf(messages);
         }
@@ -83,7 +85,8 @@ public final class ConfigManager {
                 boolean playerListEnabled) {
             this(botToken, channelId, chatEnabled, eventsEnabled, messages,
                     serverStatusEnabled, playerListEnabled,
-                    defaultDeathSettings(), defaultAchievementSettings());
+                    defaultDeathSettings(), defaultAchievementSettings(),
+                    defaultDiscordEventsSettings());
         }
 
         public Settings(
@@ -97,7 +100,22 @@ public final class ConfigManager {
                 DeathSettings deathMessages) {
             this(botToken, channelId, chatEnabled, eventsEnabled, messages,
                     serverStatusEnabled, playerListEnabled,
-                    deathMessages, defaultAchievementSettings());
+                    deathMessages, defaultAchievementSettings(), defaultDiscordEventsSettings());
+        }
+
+        public Settings(
+                String botToken,
+                String channelId,
+                boolean chatEnabled,
+                boolean eventsEnabled,
+                Map<String, String> messages,
+                boolean serverStatusEnabled,
+                boolean playerListEnabled,
+                DeathSettings deathMessages,
+                AchievementSettings achievements) {
+            this(botToken, channelId, chatEnabled, eventsEnabled, messages,
+                    serverStatusEnabled, playerListEnabled, deathMessages,
+                    achievements, defaultDiscordEventsSettings());
         }
 
         public Settings(
@@ -107,7 +125,35 @@ public final class ConfigManager {
                 boolean eventsEnabled,
                 Map<String, String> messages) {
             this(botToken, channelId, chatEnabled, eventsEnabled, messages,
-                    true, true, defaultDeathSettings(), defaultAchievementSettings());
+                    true, true, defaultDeathSettings(), defaultAchievementSettings(),
+                    defaultDiscordEventsSettings());
+        }
+    }
+
+    public record DiscordEventsSettings(
+            boolean enabled,
+            boolean embedsEnabled,
+            String footer,
+            boolean playerEventsEnabled,
+            String playerEventsChannelId,
+            boolean joinEnabled,
+            boolean leaveEnabled,
+            boolean firstJoinEnabled,
+            boolean achievementsEnabled,
+            String achievementsChannelId,
+            Map<String, Boolean> achievementCategories,
+            boolean challengesEnabled,
+            boolean deathsEnabled,
+            String deathsChannelId,
+            boolean playerKillsEnabled,
+            boolean mobKillsEnabled,
+            boolean environmentalDeathsEnabled) {
+        public DiscordEventsSettings {
+            footer = footer == null ? "MineBridge | Minecraft Events" : footer;
+            playerEventsChannelId = playerEventsChannelId == null ? "" : playerEventsChannelId;
+            achievementsChannelId = achievementsChannelId == null ? "" : achievementsChannelId;
+            deathsChannelId = deathsChannelId == null ? "" : deathsChannelId;
+            achievementCategories = Map.copyOf(achievementCategories);
         }
     }
 
@@ -198,6 +244,7 @@ public final class ConfigManager {
 
         DeathSettings deathMessages = readDeathSettings(configuration, errors);
         AchievementSettings achievements = readAchievementSettings(configuration, errors);
+        DiscordEventsSettings discordEvents = readDiscordEventsSettings(configuration, errors);
         Map<String, String> messages = new java.util.HashMap<>();
         Map<String, Object> messageValues = new java.util.HashMap<>();
         for (String key : MESSAGE_KEYS) {
@@ -221,7 +268,8 @@ public final class ConfigManager {
                     serverStatusEnabled,
                     playerListEnabled,
                     deathMessages,
-                    achievements), List.of());
+                    achievements,
+                    discordEvents), List.of());
         }
         return new Candidate(null, errors);
     }
@@ -568,6 +616,84 @@ public final class ConfigManager {
                 categories);
     }
 
+    private static DiscordEventsSettings readDiscordEventsSettings(
+            ConfigurationSection configuration, List<String> errors) {
+        Object sectionValue = configuration.get("discord-events");
+        if (sectionValue != null && !(sectionValue instanceof ConfigurationSection)) {
+            errors.add("discord-events must be a configuration section.");
+            return defaultDiscordEventsSettings();
+        }
+        for (String section : List.of("embeds", "player-events", "achievements", "deaths")) {
+            Object value = configuration.get("discord-events." + section);
+            if (value != null && !(value instanceof ConfigurationSection)) {
+                errors.add("discord-events." + section + " must be a configuration section.");
+            }
+        }
+
+        String footer = readStringOrDefault(
+                configuration,
+                "discord-events.embeds.footer",
+                DiscordEmbedFactory.DEFAULT_FOOTER,
+                errors);
+        String playerChannel = readStringOrDefault(
+                configuration, "discord-events.player-events.channel-id", "", errors);
+        String achievementChannel = readStringOrDefault(
+                configuration, "discord-events.achievements.channel-id", "", errors);
+        String deathsChannel = readStringOrDefault(
+                configuration, "discord-events.deaths.channel-id", "", errors);
+        validateOptionalChannelId(
+                "discord-events.player-events.channel-id", playerChannel, errors);
+        validateOptionalChannelId(
+                "discord-events.achievements.channel-id", achievementChannel, errors);
+        validateOptionalChannelId(
+                "discord-events.deaths.channel-id", deathsChannel, errors);
+
+        Map<String, Boolean> achievementCategories = new java.util.HashMap<>();
+        for (AdvancementCategory category : AdvancementCategory.values()) {
+            if (category != AdvancementCategory.OTHER) {
+                achievementCategories.put(
+                        category.key(),
+                        readBoolean(
+                                configuration,
+                                "discord-events.achievements." + category.key(),
+                                true,
+                                errors));
+            }
+        }
+
+        return new DiscordEventsSettings(
+                readBoolean(configuration, "discord-events.enabled", true, errors),
+                readBoolean(configuration, "discord-events.embeds.enabled", true, errors),
+                footer,
+                readBoolean(
+                        configuration, "discord-events.player-events.enabled", true, errors),
+                playerChannel,
+                readBoolean(configuration, "discord-events.player-events.join", true, errors),
+                readBoolean(configuration, "discord-events.player-events.leave", true, errors),
+                readBoolean(
+                        configuration, "discord-events.player-events.first-join", true, errors),
+                readBoolean(
+                        configuration, "discord-events.achievements.enabled", true, errors),
+                achievementChannel,
+                achievementCategories,
+                readBoolean(
+                        configuration, "discord-events.achievements.challenges", true, errors),
+                readBoolean(configuration, "discord-events.deaths.enabled", true, errors),
+                deathsChannel,
+                readBoolean(
+                        configuration, "discord-events.deaths.player-kill", true, errors),
+                readBoolean(configuration, "discord-events.deaths.mob-kill", true, errors),
+                readBoolean(
+                        configuration, "discord-events.deaths.environmental", true, errors));
+    }
+
+    private static void validateOptionalChannelId(
+            String path, String channelId, List<String> errors) {
+        if (!channelId.isBlank() && !isValidChannelId(channelId)) {
+            errors.add(path + " must be a 17-20 digit Discord channel ID.");
+        }
+    }
+
     private static boolean readBoolean(
             ConfigurationSection configuration,
             String path,
@@ -638,6 +764,33 @@ public final class ConfigManager {
                 "{description}",
                 0x43A047,
                 categories);
+    }
+
+    private static DiscordEventsSettings defaultDiscordEventsSettings() {
+        Map<String, Boolean> achievementCategories = new java.util.HashMap<>();
+        for (AdvancementCategory category : AdvancementCategory.values()) {
+            if (category != AdvancementCategory.OTHER) {
+                achievementCategories.put(category.key(), true);
+            }
+        }
+        return new DiscordEventsSettings(
+                true,
+                true,
+                "MineBridge | Minecraft Events",
+                true,
+                "",
+                true,
+                true,
+                true,
+                true,
+                "",
+                achievementCategories,
+                true,
+                true,
+                "",
+                true,
+                true,
+                true);
     }
 
     private static String defaultDeathMessage(String category) {
