@@ -3,6 +3,9 @@ package com.minebridge.achievement;
 import com.minebridge.MineBridgePlugin;
 import com.minebridge.config.ConfigManager;
 import com.minebridge.config.ConfigManager.AchievementSettings;
+import com.minebridge.discord.DiscordEmbedFactory;
+import com.minebridge.discord.DiscordEventNotifier;
+import com.minebridge.discord.DiscordEventsPolicy;
 import com.minebridge.discord.DiscordService;
 import org.bukkit.advancement.Advancement;
 import org.bukkit.advancement.AdvancementDisplay;
@@ -13,22 +16,28 @@ public final class AdvancementAnnouncementManager {
 
     private final MineBridgePlugin plugin;
     private final ConfigManager config;
-    private final DiscordService discord;
+    private final DiscordEventNotifier notifier;
     private final AdvancementAnnouncementDeduplicator deduplicator;
 
     public AdvancementAnnouncementManager(
             MineBridgePlugin plugin, ConfigManager config, DiscordService discord) {
-        this(plugin, config, discord, new AdvancementAnnouncementDeduplicator());
+        this(plugin, config, new DiscordEventNotifier(discord, config),
+                new AdvancementAnnouncementDeduplicator());
+    }
+
+    public AdvancementAnnouncementManager(
+            MineBridgePlugin plugin, ConfigManager config, DiscordEventNotifier notifier) {
+        this(plugin, config, notifier, new AdvancementAnnouncementDeduplicator());
     }
 
     AdvancementAnnouncementManager(
             MineBridgePlugin plugin,
             ConfigManager config,
-            DiscordService discord,
+            DiscordEventNotifier notifier,
             AdvancementAnnouncementDeduplicator deduplicator) {
         this.plugin = plugin;
         this.config = config;
-        this.discord = discord;
+        this.notifier = notifier;
         this.deduplicator = deduplicator;
     }
 
@@ -67,14 +76,39 @@ public final class AdvancementAnnouncementManager {
                     AdvancementMessageFormatter.formatMinecraft(template, context));
         }
         if (settings.discordEnabled()) {
-            discord.sendEmbed(
-                    settings.discordChannelId().isBlank()
-                            ? currentSettings.channelId() : settings.discordChannelId(),
-                    AdvancementMessageFormatter.createEmbed(
-                            settings.embedTitle(),
-                            settings.embedDescription(),
-                            context,
-                            settings.embedColor()));
+            ConfigManager.DiscordEventsSettings eventSettings =
+                    currentSettings.discordEvents();
+            if (DiscordEventsPolicy.achievementEnabled(
+                    eventSettings, context.category(), context.challenge())) {
+                String title = AdvancementMessageFormatter.formatDiscord(
+                        context.challenge()
+                                ? settings.challengeEmbedTitle() : settings.embedTitle(),
+                        context);
+                String description = AdvancementMessageFormatter.formatDiscord(
+                        context.challenge()
+                                ? settings.challengeEmbedDescription()
+                                : settings.embedDescription(),
+                        context);
+                int color = context.challenge()
+                        ? DiscordEmbedFactory.CHALLENGE_COLOR
+                        : settings.embedColor();
+                var embed = DiscordEmbedFactory.advancement(
+                        title,
+                        description,
+                        context.player(),
+                        context.title(),
+                        context.category().displayName(),
+                        context.challenge(),
+                        color,
+                        notifier.footer(),
+                        java.time.Instant.now());
+                String channelId = eventSettings.achievementsChannelId().isBlank()
+                        ? settings.discordChannelId().isBlank()
+                                ? currentSettings.channelId()
+                                : settings.discordChannelId()
+                        : eventSettings.achievementsChannelId();
+                notifier.send(channelId, embed);
+            }
         }
     }
 }

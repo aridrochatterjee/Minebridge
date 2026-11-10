@@ -32,6 +32,7 @@ class AdvancementAnnouncementPolicyTest {
         return new AchievementSettings(
                 enabled, true, true, challengesEnabled, "",
                 "{title}", "{title}", "{title}", "{description}",
+                "{title}", "{description}",
                 0x43A047, categories);
     }
 }

@@ -54,11 +54,14 @@ public final class DiscordEmbedFactory {
             int color,
             String footer,
             Instant timestamp) {
-        return base(title, description, color, footer, timestamp)
+        EmbedBuilder builder = base(title, description, color, footer, timestamp)
                 .addField("Player", limit(discordText(player), 512), true)
                 .addField("Advancement", limit(discordText(advancement), 512), true)
-                .addField("Category", limit(discordText(category), 512), true)
-                .build();
+                .addField("Category", limit(discordText(category), 512), true);
+        if (challenge) {
+            builder.addField("Type", "Challenge", true);
+        }
+        return builder.build();
     }
 
     public static MessageEmbed advancement(

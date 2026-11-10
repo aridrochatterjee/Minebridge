@@ -8,7 +8,6 @@ import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
-import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.dv8tion.jda.api.utils.messages.MessageCreateData;
@@ -318,54 +317,6 @@ public final class DiscordService {
         }
     }
 
-    public void sendDeathMessage(String channelId, String message) {
-        if (message == null || message.isBlank()) {
-            return;
-        }
-        if (!RelayMessageFormatter.isWithinDiscordLimit(message)) {
-            warnRateLimited(
-                    "death-message-too-long",
-                    "A death notification exceeded Discord's 2000-character limit and was dropped.");
-            return;
-        }
-        sendDeathRequest(channelId, channel -> channel.sendMessage(message)
-                .setAllowedMentions(List.of())
-                .queue(
-                        ignored -> { },
-                        error -> warnRateLimited(
-                                "death-message-api-rejected",
-                                "Discord rejected a death notification.")));
-    }
-
-    public void sendDeathEmbed(
-            String channelId, String title, String description, int color) {
-        if (description == null || description.isBlank()) {
-            return;
-        }
-        if (description.length() > 4096 || (title != null && title.length() > 256)) {
-            warnRateLimited(
-                    "death-embed-too-long",
-                    "A death notification embed exceeded Discord's content limits and was dropped.");
-            return;
-        }
-        sendDeathRequest(channelId, channel -> {
-            EmbedBuilder builder = new EmbedBuilder()
-                    .setDescription(description)
-                    .setColor(new Color(color));
-            if (title != null && !title.isBlank()) {
-                builder.setTitle(title);
-            }
-            MessageEmbed embed = builder.build();
-            channel.sendMessageEmbeds(embed)
-                    .setAllowedMentions(List.of())
-                    .queue(
-                            ignored -> { },
-                            error -> warnRateLimited(
-                                    "death-embed-api-rejected",
-                                    "Discord rejected a death notification embed."));
-        });
-    }
-
     public void sendEventEmbed(String channelId, MessageEmbed embed) {
         if (embed == null) {
             return;
@@ -377,19 +328,6 @@ public final class DiscordService {
                         error -> warnRateLimited(
                                 "embed-api-rejected",
                                 "Discord rejected an announcement embed.")));
-    }
-
-    private void sendDeathRequest(
-            String channelId, java.util.function.Consumer<TextChannel> sendRequest) {
-        sendNotificationRequest(
-                channelId,
-                sendRequest,
-                "death-discord-unavailable",
-                "A death notification was skipped because Discord is not connected.",
-                "death-channel-unavailable",
-                "A death notification was skipped because its Discord channel is unavailable.",
-                "death-submit-failed",
-                "Could not submit a death notification to Discord.");
     }
 
     private void sendNotificationRequest(
@@ -426,10 +364,20 @@ public final class DiscordService {
             warnRateLimited(channelCategory, channelMessage);
             return;
         }
+        submitSafely(
+                () -> sendRequest.accept(channel),
+                failure -> warnRateLimited(submitCategory, submitMessage));
+    }
+
+    static boolean submitSafely(
+            Runnable submission,
+            java.util.function.Consumer<RuntimeException> onFailure) {
         try {
-            sendRequest.accept(channel);
+            submission.run();
+            return true;
         } catch (RuntimeException exception) {
-            warnRateLimited(submitCategory, submitMessage);
+            onFailure.accept(exception);
+            return false;
         }
     }
 

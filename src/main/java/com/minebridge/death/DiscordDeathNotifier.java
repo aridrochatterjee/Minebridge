@@ -1,31 +1,32 @@
 package com.minebridge.death;
 
 import com.minebridge.config.ConfigManager.DeathSettings;
-import com.minebridge.discord.DiscordService;
+import com.minebridge.config.ConfigManager;
+import com.minebridge.discord.DiscordEmbedFactory;
+import com.minebridge.discord.DiscordEventNotifier;
 
 public final class DiscordDeathNotifier {
 
-    private final DiscordService discord;
+    private final DiscordEventNotifier notifier;
 
-    public DiscordDeathNotifier(DiscordService discord) {
-        this.discord = discord;
+    public DiscordDeathNotifier(DiscordEventNotifier notifier) {
+        this.notifier = notifier;
     }
 
     public void notify(
             DeathSettings settings,
-            String fallbackChannelId,
+            String channelId,
             DeathContext context,
             String message) {
-        String channelId = settings.discordChannelId().isBlank()
-                ? fallbackChannelId : settings.discordChannelId();
         String description = DeathMessageFormatter.formatDiscord(
                 settings.embedDescription(), context, message);
-        if (settings.embedEnabled()) {
-            String title = DeathMessageFormatter.formatDiscord(
-                    settings.embedTitle(), context, message);
-            discord.sendDeathEmbed(channelId, title, description, settings.embedColor());
-        } else {
-            discord.sendDeathMessage(channelId, description);
-        }
+        var embed = DiscordEmbedFactory.death(
+                DeathMessageFormatter.formatDiscord(
+                        "PLAYER DEATH", context, message),
+                description,
+                context,
+                settings.embedColor(),
+                notifier.footer());
+        notifier.send(channelId, embed);
     }
 }

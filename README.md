@@ -157,7 +157,7 @@ Relevant configuration:
 | `death-messages.minecraft.broadcast` | `true` | Broadcast enabled category templates in Minecraft. |
 | `death-messages.discord.enabled` | `true` | Enable Discord death notifications. |
 | `death-messages.discord.channel-id` | `""` | Optional 17-20 digit channel ID; blank uses `discord.channel-id`. |
-| `death-messages.discord.embed` | `true` | Send a Discord embed instead of a plain message. |
+| `death-messages.discord.embed` | `true` | Legacy setting retained for compatibility; death notifications are always embeds. |
 | `death-messages.discord.title` | `☠ Player death` | Embed title; supports `{victim}`, `{killer}`, `{cause}`, `{category}`, and `{message}`. |
 | `death-messages.discord.description` | `{message}\nCategory: {category}\nCause: {cause}` | Embed description; supports the same placeholders. |
 | `death-messages.discord.color` | `#D32F2F` | Six-digit hexadecimal embed color. |
@@ -241,9 +241,11 @@ announcements should appear. MineBridge does not change this server-wide gamerul
 | `achievements.messages.normal` | `&a✦ {player} has made the advancement [{title}]!` | Minecraft template for non-challenges. |
 | `achievements.messages.challenge` | `&6🏆 {player} has completed the challenge [{title}]!` | Minecraft template for challenges. |
 | `achievements.discord.channel-id` | `""` | Optional Discord text channel ID; blank uses the main configured channel. |
-| `achievements.discord.title` | `✦ {challenge} unlocked` | Discord embed title template. |
-| `achievements.discord.description` | `{description}` | Discord embed description template. |
-| `achievements.discord.color` | `#43A047` | Six-digit hexadecimal embed color. |
+| `achievements.discord.title` | `ADVANCEMENT UNLOCKED` | Regular Discord embed title template. |
+| `achievements.discord.description` | `{player} has unlocked {title}.\n{description}` | Regular Discord embed description template. |
+| `achievements.discord.challenge-title` | `CHALLENGE COMPLETED` | Challenge embed title template. |
+| `achievements.discord.challenge-description` | `{player} has completed {title}!\n{description}` | Challenge embed description template. |
+| `achievements.discord.color` | `#2196F3` | Six-digit hexadecimal regular advancement color. Challenges use a gold color. |
 
 Templates support `{player}`, `{title}`, `{description}`, `{category}`, and
 `{challenge}`. The challenge placeholder is `Challenge` or `Advancement`.
@@ -257,9 +259,11 @@ achievements:
   discord:
     enabled: true
     channel-id: ""
-    title: "🏆 {challenge}: {title}"
-    description: "{description}"
-    color: "#43A047"
+    title: "ADVANCEMENT UNLOCKED"
+    description: "{player} has unlocked {title}.\n{description}"
+    challenge-title: "CHALLENGE COMPLETED"
+    challenge-description: "{player} has completed {title}!\n{description}"
+    color: "#2196F3"
   challenges:
     enabled: true
   categories:
@@ -277,6 +281,46 @@ achievements:
 For example, the Minecraft chat message can be `✦ Aridro has made the
 advancement [Stone Age]!`; a challenge can appear as `🏆 Aridro has completed
 the challenge [Cover Me in Debris]!`.
+
+### Unified Discord event embeds
+
+Player joins, first joins, leaves, advancement unlocks, challenges, and player
+deaths are delivered to Discord as embeds only. Each embed includes an event
+title, formatted description, timestamp, configured footer
+(`MineBridge | Minecraft Events` by default), and event-specific fields.
+Embeds disable allowed mentions, escape dynamic Markdown, and use the existing
+JDA client asynchronously. Chat relay messages remain regular messages and are
+not part of this event-only embed policy.
+
+The `discord-events.enabled` and `discord-events.embeds.enabled` toggles gate
+Discord event embeds independently from the Minecraft announcement settings.
+Per-event channel IDs may be left blank to use `discord.channel-id`.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `discord-events.enabled` | `true` | Global Discord event-notification toggle. |
+| `discord-events.embeds.enabled` | `true` | Enable or disable event embeds (event notifications are never sent as plain text). |
+| `discord-events.embeds.footer` | `MineBridge \| Minecraft Events` | Footer used on all event embeds. |
+| `discord-events.player-events.enabled` | `true` | Enable join/leave embeds. |
+| `discord-events.player-events.channel-id` | `""` | Join/leave channel; blank uses the main channel. |
+| `discord-events.player-events.join` | `true` | Enable regular join embeds. |
+| `discord-events.player-events.leave` | `true` | Enable leave embeds. |
+| `discord-events.player-events.first-join` | `true` | Enable first-time welcome embeds. |
+| `discord-events.achievements.enabled` | `true` | Enable advancement embeds. |
+| `discord-events.achievements.channel-id` | `""` | Advancement channel; blank uses the legacy achievements channel or main channel. |
+| `discord-events.achievements.<category>` | `true` | Category toggles: `story`, `nether`, `end`, `adventure`, `husbandry`. |
+| `discord-events.achievements.challenges` | `true` | Enable challenge embeds. |
+| `discord-events.deaths.enabled` | `true` | Enable death embeds. |
+| `discord-events.deaths.channel-id` | `""` | Death channel; blank uses the legacy death channel or main channel. |
+| `discord-events.deaths.player-kill` | `true` | Enable PvP death embeds. |
+| `discord-events.deaths.mob-kill` | `true` | Enable mob death embeds. |
+| `discord-events.deaths.environmental` | `true` | Enable environmental death embeds. |
+
+Join, leave, first-join, advancement, and death toggles in this Discord section
+do not change their separate Minecraft announcement settings. The existing
+`features.join-leave-notifications` and each module's prior Discord settings
+are also respected for backward compatibility. Death notices always use an
+embed, even if an old config contains `death-messages.discord.embed: false`.
 
 `{timestamp}` is UTC ISO-8601 and is inserted only when present in a template.
 For Discord messages, `{player}` remains the effective author name used by

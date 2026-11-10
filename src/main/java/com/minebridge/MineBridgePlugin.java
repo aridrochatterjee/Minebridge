@@ -6,6 +6,7 @@ import com.minebridge.achievement.AdvancementListener;
 import com.minebridge.config.ConfigManager;
 import com.minebridge.death.DeathListener;
 import com.minebridge.death.DeathMessageManager;
+import com.minebridge.discord.DiscordEventNotifier;
 import com.minebridge.discord.DiscordService;
 import com.minebridge.discord.ReloadResult;
 import com.minebridge.listener.ChatListener;
@@ -30,6 +31,8 @@ public final class MineBridgePlugin extends JavaPlugin {
         configManager = new ConfigManager(this);
         ConfigManager.Candidate initialConfig = configManager.loadCandidate();
         discordService = new DiscordService(this, configManager);
+        DiscordEventNotifier eventNotifier =
+                new DiscordEventNotifier(discordService, configManager);
         if (initialConfig.valid()) {
             configManager.commit(initialConfig);
             getServer().getScheduler().runTaskAsynchronously(
@@ -47,15 +50,15 @@ public final class MineBridgePlugin extends JavaPlugin {
                 new ChatListener(this, discordService, configManager), this);
 
         getServer().getPluginManager().registerEvents(
-                new PlayerEventListener(discordService, configManager), this);
+                new PlayerEventListener(eventNotifier, configManager), this);
 
         getServer().getPluginManager().registerEvents(
-                new DeathListener(new DeathMessageManager(this, configManager, discordService)),
+                new DeathListener(new DeathMessageManager(this, configManager, eventNotifier)),
                 this);
 
         getServer().getPluginManager().registerEvents(
                 new AdvancementListener(new AdvancementAnnouncementManager(
-                        this, configManager, discordService)),
+                        this, configManager, eventNotifier)),
                 this);
 
         PluginCommand command = getCommand("minebridge");

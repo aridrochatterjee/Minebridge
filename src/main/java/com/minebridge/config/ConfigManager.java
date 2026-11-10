@@ -186,6 +186,8 @@ public final class ConfigManager {
             String challengeMessageTemplate,
             String embedTitle,
             String embedDescription,
+            String challengeEmbedTitle,
+            String challengeEmbedDescription,
             int embedColor,
             Map<String, Boolean> categories) {
         public AchievementSettings {
@@ -390,8 +392,20 @@ public final class ConfigManager {
                 256,
                 errors);
         validateDeathTemplate(
+                "achievements.discord.challenge-title",
+                templates.get("discord.challenge-title"),
+                ACHIEVEMENT_PLACEHOLDERS,
+                256,
+                errors);
+        validateDeathTemplate(
                 "achievements.discord.description",
                 templates.get("discord.description"),
+                ACHIEVEMENT_PLACEHOLDERS,
+                4096,
+                errors);
+        validateDeathTemplate(
+                "achievements.discord.challenge-description",
+                templates.get("discord.challenge-description"),
                 ACHIEVEMENT_PLACEHOLDERS,
                 4096,
                 errors);
@@ -568,18 +582,30 @@ public final class ConfigManager {
         String title = readStringOrDefault(
                 configuration,
                 "achievements.discord.title",
-                "✦ Advancement unlocked",
+                "ADVANCEMENT UNLOCKED",
                 errors);
         String description = readStringOrDefault(
                 configuration,
                 "achievements.discord.description",
-                "{description}",
+                "{player} has unlocked {title}.\n{description}",
+                errors);
+        String challengeTitle = readStringOrDefault(
+                configuration,
+                "achievements.discord.challenge-title",
+                "CHALLENGE COMPLETED",
+                errors);
+        String challengeDescription = readStringOrDefault(
+                configuration,
+                "achievements.discord.challenge-description",
+                "{player} has completed {title}!\n{description}",
                 errors);
         errors.addAll(validateAchievementTemplates(Map.of(
                 "normal", normalMessage,
                 "challenge", challengeMessage,
                 "discord.title", title,
-                "discord.description", description)));
+                "discord.description", description,
+                "discord.challenge-title", challengeTitle,
+                "discord.challenge-description", challengeDescription)));
 
         String channelId = readStringOrDefault(
                 configuration, "achievements.discord.channel-id", "", errors);
@@ -588,9 +614,9 @@ public final class ConfigManager {
         }
 
         Object colorValue = configuration.get("achievements.discord.color");
-        String color = colorValue == null ? "#43A047"
+        String color = colorValue == null ? "#2196F3"
                 : colorValue instanceof String stringValue ? stringValue : null;
-        int embedColor = 0x43A047;
+        int embedColor = 0x2196F3;
         if (color == null) {
             errors.add("achievements.discord.color must be a six-digit hex color string.");
         } else {
@@ -612,6 +638,8 @@ public final class ConfigManager {
                 challengeMessage,
                 title,
                 description,
+                challengeTitle,
+                challengeDescription,
                 embedColor,
                 categories);
     }
@@ -760,9 +788,11 @@ public final class ConfigManager {
                 "",
                 DEFAULT_ACHIEVEMENT_MESSAGES.get("normal"),
                 DEFAULT_ACHIEVEMENT_MESSAGES.get("challenge"),
-                "✦ Advancement unlocked",
-                "{description}",
-                0x43A047,
+                "ADVANCEMENT UNLOCKED",
+                "{player} has unlocked {title}.\n{description}",
+                "CHALLENGE COMPLETED",
+                "{player} has completed {title}!\n{description}",
+                0x2196F3,
                 categories);
     }
 

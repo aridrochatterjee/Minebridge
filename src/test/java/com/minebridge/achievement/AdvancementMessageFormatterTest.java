@@ -57,10 +57,10 @@ class AdvancementMessageFormatterTest {
         assertEquals("✦ Advancement unlocked", embed.getTitle());
         assertEquals("Mine stone with your new pickaxe", embed.getDescription());
         assertEquals(0x43A047, embed.getColor().getRGB() & 0xFFFFFF);
-        assertEquals(4, embed.getFields().size());
+        assertEquals(3, embed.getFields().size());
         assertEquals("Player", embed.getFields().get(0).getName());
         assertEquals("Aridro", embed.getFields().get(0).getValue());
-        assertEquals("Advancement", embed.getFields().get(3).getValue());
+        assertEquals("Story", embed.getFields().get(2).getValue());
         assertTrue(embed.getFields().stream()
                 .anyMatch(field -> field.getName().equals("Category")
                         && field.getValue().equals("Story")));

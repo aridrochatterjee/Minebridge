@@ -3,6 +3,9 @@ package com.minebridge.death;
 import com.minebridge.MineBridgePlugin;
 import com.minebridge.config.ConfigManager;
 import com.minebridge.config.ConfigManager.DeathSettings;
+import com.minebridge.discord.DiscordEventDeduplicator;
+import com.minebridge.discord.DiscordEventNotifier;
+import com.minebridge.discord.DiscordEventsPolicy;
 import com.minebridge.discord.DiscordService;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
@@ -17,12 +20,18 @@ public final class DeathMessageManager {
     private final MineBridgePlugin plugin;
     private final ConfigManager config;
     private final DiscordDeathNotifier discordNotifier;
+    private final DiscordEventDeduplicator deduplicator = new DiscordEventDeduplicator();
 
     public DeathMessageManager(
             MineBridgePlugin plugin, ConfigManager config, DiscordService discord) {
+        this(plugin, config, new DiscordEventNotifier(discord, config));
+    }
+
+    public DeathMessageManager(
+            MineBridgePlugin plugin, ConfigManager config, DiscordEventNotifier notifier) {
         this.plugin = plugin;
         this.config = config;
-        this.discordNotifier = new DiscordDeathNotifier(discord);
+        this.discordNotifier = new DiscordDeathNotifier(notifier);
     }
 
     public void handleDeath(PlayerDeathEvent event) {
@@ -45,6 +54,9 @@ public final class DeathMessageManager {
                 lastDamage == null ? null : lastDamage.getCause();
         DeathCategory category = DeathMessageClassifier.classify(
                 damageCause, playerKiller, mobKiller);
+        if (deduplicator.alreadySent(victim.getUniqueId(), "death")) {
+            return;
+        }
         String killerName = playerKiller
                 ? killer.getName()
                 : mobKiller ? displayEntity(attacker) : "";
@@ -62,9 +74,17 @@ public final class DeathMessageManager {
             plugin.getServer().broadcastMessage(minecraftMessage);
         }
         if (DeathMessagePolicy.shouldNotifyDiscord(settings, category)) {
+            ConfigManager.DiscordEventsSettings eventSettings =
+                    currentSettings.discordEvents();
+            if (!DiscordEventsPolicy.deathEnabled(eventSettings, category)) {
+                return;
+            }
             discordNotifier.notify(
                     settings,
-                    currentSettings.channelId(),
+                    eventSettings.deathsChannelId().isBlank()
+                            ? settings.discordChannelId().isBlank()
+                                    ? currentSettings.channelId() : settings.discordChannelId()
+                            : eventSettings.deathsChannelId(),
                     context,
                     DeathMessageFormatter.formatDiscordMessage(template, context));
         }

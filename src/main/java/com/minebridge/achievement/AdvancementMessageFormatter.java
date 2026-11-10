@@ -1,11 +1,9 @@
 package com.minebridge.achievement;
 
 import com.minebridge.discord.RelayMessageFormatter;
-import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import org.bukkit.ChatColor;
 
-import java.awt.Color;
 import java.util.Map;
 
 public final class AdvancementMessageFormatter {
@@ -32,15 +30,16 @@ public final class AdvancementMessageFormatter {
         if (title.isBlank()) {
             title = "✦ Advancement unlocked";
         }
-        return new EmbedBuilder()
-                .setTitle(title)
-                .setDescription(description.isBlank() ? "\u200b" : description)
-                .setColor(new Color(color))
-                .addField("Player", limit(discordText(context.player()), 1024), true)
-                .addField("Advancement", limit(discordText(context.title()), 1024), true)
-                .addField("Category", context.category().displayName(), true)
-                .addField("Type", context.typeLabel(), true)
-                .build();
+        return com.minebridge.discord.DiscordEmbedFactory.advancement(
+                title,
+                description.isBlank() ? "\u200b" : description,
+                context.player(),
+                context.title(),
+                context.category().displayName(),
+                context.challenge(),
+                color,
+                com.minebridge.discord.DiscordEmbedFactory.DEFAULT_FOOTER,
+                java.time.Instant.now());
     }
 
     private static String replace(
@@ -79,10 +78,6 @@ public final class AdvancementMessageFormatter {
             return RelayMessageFormatter.escapeDiscordUserText(sanitized);
         }
         return ChatColor.stripColor(ChatColor.translateAlternateColorCodes('&', sanitized));
-    }
-
-    private static String discordText(String value) {
-        return RelayMessageFormatter.escapeDiscordUserText(value);
     }
 
     private static String limit(String value, int maxLength) {

@@ -3,6 +3,7 @@ package com.minebridge.listener;
 import com.minebridge.discord.DiscordEmbedFactory;
 import com.minebridge.discord.DiscordEventDeduplicator;
 import com.minebridge.discord.DiscordEventNotifier;
+import com.minebridge.discord.DiscordEventsPolicy;
 import com.minebridge.discord.DiscordService;
 import com.minebridge.discord.RelayMessageFormatter;
 import com.minebridge.config.ConfigManager;
@@ -10,8 +11,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-
-
 public final class PlayerEventListener implements Listener {
 
     private final DiscordEventNotifier notifier;
@@ -19,7 +18,11 @@ public final class PlayerEventListener implements Listener {
     private final DiscordEventDeduplicator deduplicator = new DiscordEventDeduplicator();
 
     public PlayerEventListener(DiscordService discord, ConfigManager config) {
-        this.notifier = new DiscordEventNotifier(discord, config);
+        this(new DiscordEventNotifier(discord, config), config);
+    }
+
+    public PlayerEventListener(DiscordEventNotifier notifier, ConfigManager config) {
+        this.notifier = notifier;
         this.config = config;
     }
 
@@ -28,21 +31,22 @@ public final class PlayerEventListener implements Listener {
         ConfigManager.Settings current = config.currentSettings();
         ConfigManager.DiscordEventsSettings settings = current.discordEvents();
         var player = event.getPlayer();
-        boolean firstJoin = !player.hasPlayedBefore();
-        if (!config.eventsEnabled()
-                || !settings.playerEventsEnabled()
-                || (firstJoin && !settings.firstJoinEnabled())
-                || (!firstJoin && !settings.joinEnabled())
-                || deduplicator.alreadySent(player.getUniqueId(), firstJoin ? "first-join" : "join")) {
+        boolean firstJoin = PlayerEventClassifier.isFirstJoin(player.hasPlayedBefore());
+        if (!current.eventsEnabled()
+                || !DiscordEventsPolicy.playerEventEnabled(settings, true, firstJoin)
+                || deduplicator.alreadySent(player.getUniqueId(), "join")) {
             return;
         }
-        String template = firstJoin
+        boolean welcome = firstJoin && settings.firstJoinEnabled();
+        String template = welcome
                 ? "{player} joined the server for the first time!"
-                : "{player} joined the Minecraft server.";
+                : config.message(
+                        "messages.player-join",
+                        "🟢 **{player}** joined the server.");
         String description = RelayMessageFormatter.formatForDiscord(
                 template, player.getName(), "", java.time.Instant.now().toString());
         var embed = DiscordEmbedFactory.playerJoined(
-                player.getName(), description, firstJoin, notifier.footer());
+                player.getName(), description, welcome, notifier.footer());
         String channelId = settings.playerEventsChannelId().isBlank()
                 ? current.channelId() : settings.playerEventsChannelId();
         notifier.send(channelId, embed);
@@ -53,14 +57,15 @@ public final class PlayerEventListener implements Listener {
         ConfigManager.Settings current = config.currentSettings();
         ConfigManager.DiscordEventsSettings settings = current.discordEvents();
         var player = event.getPlayer();
-        if (!config.eventsEnabled()
-                || !settings.playerEventsEnabled()
-                || !settings.leaveEnabled()
+        if (!current.eventsEnabled()
+                || !DiscordEventsPolicy.playerEventEnabled(settings, false, false)
                 || deduplicator.alreadySent(player.getUniqueId(), "leave")) {
             return;
         }
         String description = RelayMessageFormatter.formatForDiscord(
-                "{player} left the Minecraft server.",
+                config.message(
+                        "messages.player-leave",
+                        "🔴 **{player}** left the server."),
                 player.getName(),
                 "",
                 java.time.Instant.now().toString());

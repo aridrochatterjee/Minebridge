@@ -31,7 +31,7 @@ class ConfigManagerAchievementSettingsTest {
         assertFalse(settings.categories().get("end"));
         assertFalse(settings.challengesEnabled());
         assertEquals("12345678901234568", settings.discordChannelId());
-        assertEquals(0x43A047, settings.embedColor());
+        assertEquals(0x2196F3, settings.embedColor());
         assertEquals("&a✦ {player} has made the advancement [{title}]!",
                 settings.messageTemplate());
     }
@@ -63,7 +63,10 @@ class ConfigManagerAchievementSettingsTest {
                 "normal", "{player} {title} {description} {category} {challenge}",
                 "challenge", "{player} {title} {category}",
                 "discord.title", "{challenge}: {title}",
-                "discord.description", "{player}: {description} ({category})"));
+                "discord.description", "{player}: {description} ({category})",
+                "discord.challenge-title", "{challenge}: {title}",
+                "discord.challenge-description",
+                "{player}: {description} ({category})"));
         assertTrue(ConfigManager.validateAchievementTemplates(templates).isEmpty());
         templates.put("discord.description", "{player");
         assertTrue(ConfigManager.validateAchievementTemplates(templates).stream()

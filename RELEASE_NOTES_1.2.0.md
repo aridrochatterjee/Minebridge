@@ -16,6 +16,11 @@ Spigot API 1.20.6, and JDA 5.6.1.
   containing player, title, description, category, and challenge type.
 - Independent notification, category, and challenge toggles, plus customizable
   message templates and Discord channels.
+- First-time player welcome embeds and regular join/leave embeds.
+- A shared embed-only event delivery path with configurable footer and
+  asynchronous JDA delivery.
+- Discord event settings for independent player, advancement category,
+  challenge, and death-category channels and toggles.
 
 ## Reliability and security
 
@@ -29,6 +34,8 @@ Spigot API 1.20.6, and JDA 5.6.1.
   alongside custom messages. The plugin does not change this server-wide rule.
 - Dynamic Discord text is Markdown-escaped and outgoing announcement requests
   disable automatic mentions.
+- Player join/leave/first-join, advancement/challenge, and death event
+  notifications are sent only as Discord embeds.
 - Missing Discord channels and API failures are logged without interrupting
   gameplay.
 

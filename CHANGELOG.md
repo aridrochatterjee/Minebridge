@@ -21,11 +21,16 @@ release.
 - Discord achievement embeds.
 - Configurable announcement templates and channels.
 - Advancement category classification and challenge-specific announcements.
+- Join, leave, and first-join Discord event embeds.
+- A shared Discord event embed factory/notifier with timestamps, standard
+  footer, and disabled allowed mentions.
 
 ### Changed
 
 - Extend the bundled configuration and README with Death Messages and
   Achievement Announcements setup and compatibility details.
+- Route player, advancement, and death notifications through the shared
+  embed-only delivery path.
 - Set the project and plugin metadata version to 1.2.0.
 
 ### Fixed
@@ -33,6 +38,8 @@ release.
 - Suppress the vanilla death line when MineBridge broadcasts its replacement,
   preventing duplicate Minecraft announcements.
 - Prevent duplicate advancement announcements within the deduplication window.
+- Prevent duplicate join, leave, and death notifications during the
+  deduplication window.
 
 ### Removed
 
@@ -47,6 +54,7 @@ release.
 
 - Add automated coverage for death classification, advancement category and
   challenge detection, duplicate prevention, message/embed formatting,
+  join/leave/first-join embeds, mention suppression, delivery failures,
   notification policy, and configuration validation.
 
 ## 1.0.1 - 2026-11-02

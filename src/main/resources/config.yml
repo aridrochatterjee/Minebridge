@@ -72,9 +72,11 @@ achievements:
     enabled: true
     # Leave blank to use discord.channel-id.
     channel-id: ""
-    title: "✦ {challenge} unlocked"
-    description: "{description}"
-    color: "#43A047"
+    title: "ADVANCEMENT UNLOCKED"
+    description: "{player} has unlocked {title}.\n{description}"
+    challenge-title: "CHALLENGE COMPLETED"
+    challenge-description: "{player} has completed {title}!\n{description}"
+    color: "#2196F3"
 
   challenges:
     enabled: true
@@ -91,3 +93,34 @@ achievements:
   messages:
     normal: "&a✦ {player} has made the advancement [{title}]!"
     challenge: "&6🏆 {player} has completed the challenge [{title}]!"
+
+discord-events:
+  enabled: true
+
+  embeds:
+    enabled: true
+    footer: "MineBridge | Minecraft Events"
+
+  player-events:
+    enabled: true
+    channel-id: ""
+    join: true
+    leave: true
+    first-join: true
+
+  achievements:
+    enabled: true
+    channel-id: ""
+    story: true
+    nether: true
+    end: true
+    adventure: true
+    husbandry: true
+    challenges: true
+
+  deaths:
+    enabled: true
+    channel-id: ""
+    player-kill: true
+    mob-kill: true
+    environmental: true
