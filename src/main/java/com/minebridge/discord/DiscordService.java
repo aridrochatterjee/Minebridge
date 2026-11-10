@@ -6,11 +6,14 @@ import com.minebridge.config.ConfigManager;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Activity;
+import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import org.bukkit.plugin.IllegalPluginAccessException;
 
+import java.awt.Color;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -114,32 +117,37 @@ public final class DiscordService {
             return false;
         }
 
+        ReloadResult immediateResult = null;
+        boolean startClient = false;
+        boolean startAccepted = true;
         synchronized (lifecycleLock) {
             if (stopping) {
-                complete(callback, new ReloadResult(false, "MineBridge is shutting down."));
-                return false;
-            }
-            if (jda != null) {
+                immediateResult = new ReloadResult(false, "MineBridge is shutting down.");
+                startAccepted = false;
+            } else if (jda != null) {
                 if (callback != null) {
                     if (jda.getStatus() == JDA.Status.CONNECTED) {
-                        complete(callback, new ReloadResult(
-                                true, "Discord is already connected."));
+                        immediateResult = new ReloadResult(
+                                true, "Discord is already connected.");
                     } else {
                         startupCallback = callback;
                         setConnectionDeadline();
                     }
                 }
-                return true;
+            } else if (starting) {
+                immediateResult = new ReloadResult(
+                        false, "Discord startup is already in progress.");
+            } else {
+                starting = true;
+                lastConnectionState = "CONNECTING";
+                hasConnected = false;
+                setConnectionDeadline();
+                startClient = true;
             }
-            if (starting) {
-                complete(callback, new ReloadResult(false, "Discord startup is already in progress."));
-                return true;
-            }
-
-            starting = true;
-            lastConnectionState = "CONNECTING";
-            hasConnected = false;
-            setConnectionDeadline();
+        }
+        if (!startClient) {
+            complete(callback, immediateResult);
+            return startAccepted;
         }
 
         JDA created;
@@ -307,6 +315,121 @@ public final class DiscordService {
             warnRateLimited(
                     "outgoing-dropped",
                     "The outgoing Discord queue is full or closed; a new message was dropped.");
+        }
+    }
+
+    public void sendDeathMessage(String channelId, String message) {
+        if (message == null || message.isBlank()) {
+            return;
+        }
+        if (!RelayMessageFormatter.isWithinDiscordLimit(message)) {
+            warnRateLimited(
+                    "death-message-too-long",
+                    "A death notification exceeded Discord's 2000-character limit and was dropped.");
+            return;
+        }
+        sendDeathRequest(channelId, channel -> channel.sendMessage(message)
+                .setAllowedMentions(List.of())
+                .queue(
+                        ignored -> { },
+                        error -> warnRateLimited(
+                                "death-message-api-rejected",
+                                "Discord rejected a death notification.")));
+    }
+
+    public void sendDeathEmbed(
+            String channelId, String title, String description, int color) {
+        if (description == null || description.isBlank()) {
+            return;
+        }
+        if (description.length() > 4096 || (title != null && title.length() > 256)) {
+            warnRateLimited(
+                    "death-embed-too-long",
+                    "A death notification embed exceeded Discord's content limits and was dropped.");
+            return;
+        }
+        sendDeathRequest(channelId, channel -> {
+            EmbedBuilder builder = new EmbedBuilder()
+                    .setDescription(description)
+                    .setColor(new Color(color));
+            if (title != null && !title.isBlank()) {
+                builder.setTitle(title);
+            }
+            MessageEmbed embed = builder.build();
+            channel.sendMessageEmbeds(embed)
+                    .setAllowedMentions(List.of())
+                    .queue(
+                            ignored -> { },
+                            error -> warnRateLimited(
+                                    "death-embed-api-rejected",
+                                    "Discord rejected a death notification embed."));
+        });
+    }
+
+    public void sendEmbed(String channelId, MessageEmbed embed) {
+        if (embed == null) {
+            return;
+        }
+        sendNotificationRequest(channelId, channel -> channel.sendMessageEmbeds(embed)
+                .setAllowedMentions(List.of())
+                .queue(
+                        ignored -> { },
+                        error -> warnRateLimited(
+                                "embed-api-rejected",
+                                "Discord rejected an announcement embed.")));
+    }
+
+    private void sendDeathRequest(
+            String channelId, java.util.function.Consumer<TextChannel> sendRequest) {
+        sendNotificationRequest(
+                channelId,
+                sendRequest,
+                "death-discord-unavailable",
+                "A death notification was skipped because Discord is not connected.",
+                "death-channel-unavailable",
+                "A death notification was skipped because its Discord channel is unavailable.",
+                "death-submit-failed",
+                "Could not submit a death notification to Discord.");
+    }
+
+    private void sendNotificationRequest(
+            String channelId,
+            java.util.function.Consumer<TextChannel> sendRequest) {
+        sendNotificationRequest(
+                channelId,
+                sendRequest,
+                "announcement-discord-unavailable",
+                "An announcement was skipped because Discord is not connected.",
+                "announcement-channel-unavailable",
+                "An announcement was skipped because its Discord channel is unavailable.",
+                "announcement-submit-failed",
+                "Could not submit an announcement to Discord.");
+    }
+
+    private void sendNotificationRequest(
+            String channelId,
+            java.util.function.Consumer<TextChannel> sendRequest,
+            String disconnectedCategory,
+            String disconnectedMessage,
+            String channelCategory,
+            String channelMessage,
+            String submitCategory,
+            String submitMessage) {
+        JDA current = jda;
+        if (stopping || current == null || current.getStatus() != JDA.Status.CONNECTED) {
+            warnRateLimited(disconnectedCategory, disconnectedMessage);
+            return;
+        }
+        TextChannel channel = channelId == null || channelId.isBlank()
+                ? null : current.getTextChannelById(channelId);
+        if (channel == null) {
+            warnRateLimited(channelCategory, channelMessage);
+            return;
+        }
+        try {
+            sendRequest.accept(channel);
+        } catch (RuntimeException exception) {
+            warnRateLimited(submitCategory, submitMessage);
         }
     }
 

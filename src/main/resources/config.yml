@@ -20,3 +20,74 @@ features:
   join-leave-notifications: true
   server-status: true
   player-list: true
+
+death-messages:
+  enabled: true
+
+  minecraft:
+    enabled: true
+    broadcast: true
+
+  discord:
+    enabled: true
+    # Leave blank to use discord.channel-id.
+    channel-id: ""
+    embed: true
+    title: "☠ Player death"
+    description: "{message}\nCategory: {category}\nCause: {cause}"
+    color: "#D32F2F"
+
+  categories:
+    player-kill: true
+    mob-kill: true
+    fall: true
+    lava: true
+    fire: true
+    drowning: true
+    void: true
+    explosion: true
+    environmental: true
+    other: true
+
+  # Allowed placeholders: {victim}, {killer}, {cause}, {category}.
+  messages:
+    player-kill: "&c☠ {victim} was slain by {killer}"
+    mob-kill: "&c☠ {victim} was slain by {killer}"
+    fall: "&c☠ {victim} fell to their death"
+    lava: "&c☠ {victim} tried to swim in lava"
+    fire: "&c☠ {victim} burned to death"
+    drowning: "&c☠ {victim} drowned"
+    void: "&c☠ {victim} fell out of the world"
+    explosion: "&c☠ {victim} died in an explosion"
+    environmental: "&c☠ {victim} died from {cause}"
+    other: "&c☠ {victim} died"
+
+achievements:
+  enabled: true
+
+  minecraft:
+    enabled: true
+
+  discord:
+    enabled: true
+    # Leave blank to use discord.channel-id.
+    channel-id: ""
+    title: "✦ {challenge} unlocked"
+    description: "{description}"
+    color: "#43A047"
+
+  challenges:
+    enabled: true
+
+  categories:
+    story: true
+    nether: true
+    end: true
+    adventure: true
+    husbandry: true
+    other: true
+
+  # Allowed placeholders: {player}, {title}, {description}, {category}, {challenge}.
+  messages:
+    normal: "&a✦ {player} has made the advancement [{title}]!"
+    challenge: "&6🏆 {player} has completed the challenge [{title}]!"

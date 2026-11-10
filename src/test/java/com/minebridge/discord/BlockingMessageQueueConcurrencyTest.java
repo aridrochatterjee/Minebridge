@@ -20,29 +20,30 @@ class BlockingMessageQueueConcurrencyTest {
         BlockingMessageQueue queue = new BlockingMessageQueue(capacity);
 
         AtomicInteger offers = new AtomicInteger();
-        AtomicInteger polls = new AtomicInteger();
         CountDownLatch ready = new CountDownLatch(threads);
         CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(threads);
 
         for (int t = 0; t < threads; t++) {
             new Thread(() -> {
-                ready.countDown();
                 try {
+                    ready.countDown();
                     start.await();
+                    for (int j = 0; j < perThread; j++) {
+                        queue.offer("msg-" + (offers.incrementAndGet()));
+                    }
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
-                }
-                for (int j = 0; j < perThread; j++) {
-                    if (queue.offer("msg-" + (offers.incrementAndGet()))) {
-                        polls.incrementAndGet();
-                    }
+                    throw new AssertionError(exception);
+                } finally {
+                    finished.countDown();
                 }
             }).start();
         }
 
         ready.await();
         start.countDown();
-        Thread.sleep(500L);
+        finished.await();
 
         assertEquals(capacity, queue.size(), "the queue must never hold more than its capacity");
         assertFalse(queue.isEmpty(), "the queue should still contain messages");
@@ -52,21 +53,29 @@ class BlockingMessageQueueConcurrencyTest {
     void closeWhileNotFullDoesNotAbandonFutureOffersSafely() throws InterruptedException {
         BlockingMessageQueue queue = new BlockingMessageQueue(1);
         assertTrue(queue.offer("one"));
-        CountDownLatch poller = new CountDownLatch(1);
+        CountDownLatch pollerReady = new CountDownLatch(1);
+        CountDownLatch allowPoll = new CountDownLatch(1);
+        CountDownLatch pollerFinished = new CountDownLatch(1);
         AtomicReference<String> consumed = new AtomicReference<>();
         new Thread(() -> {
             try {
+                pollerReady.countDown();
+                allowPoll.await();
                 consumed.set(queue.poll());
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(exception);
             } finally {
-                poller.countDown();
+                pollerFinished.countDown();
             }
         }).start();
 
-        Thread.sleep(100L);
+        pollerReady.await();
+        allowPoll.countDown();
+        pollerFinished.await();
         queue.close();
         assertFalse(queue.offer("after-close"));
 
-        poller.await();
         assertEquals("one", consumed.get());
     }
 }

@@ -11,6 +11,10 @@ channel; bot and webhook messages are ignored.
 Current features:
 
 - Bidirectional chat relay and player join/leave notifications.
+- Configurable Minecraft death announcements and Discord death notification
+  embeds, including player, mob, and environmental causes.
+- Minecraft advancement announcements and Discord achievement embeds, with
+  category and challenge-aware templates.
 - In-game Discord status, server capacity, and online-player commands.
 - Configurable message templates, with validated placeholders and safe handling
   of user-provided text.
@@ -32,7 +36,7 @@ Build the shaded plugin JAR from the repository root:
 ./gradlew build
 ```
 
-The distributable is `build/libs/MineBridge-1.0.0.jar` for the current project
+The distributable is `build/libs/MineBridge-1.2.0.jar` for the current project
 version. Place it in the `plugins/` directory of the server you have chosen to
 test, then start the server once to create `plugins/MineBridge/config.yml`.
 Stop the server before replacing the JAR during an upgrade.
@@ -52,7 +56,7 @@ pull requests with the normal CI results before merging.
 
 Before a release, update `version` in `build.gradle` and `plugin.yml`, add a
 dated entry to [CHANGELOG.md](CHANGELOG.md), then build and test from a clean
-checkout. Review the [1.0.1 release-note draft](RELEASE_NOTES_1.0.1.md) and test
+checkout. Review the [1.2.0 release notes](RELEASE_NOTES_1.2.0.md) and test
 the resulting JAR against the intended Minecraft server and a Discord test
 server. For rollback, stop the server, restore the previous JAR and the
 backed-up `config.yml`, then start the server and check `/minebridge status`.
@@ -111,10 +115,10 @@ Prefer setting the bot token in the server process environment as
 installations. Do not put a real token in source control, paste it into chat,
 or include it in logs. The shipped config intentionally has an empty token.
 
-The config contains the Discord token and channel ID, six message templates,
-and feature toggles for relays and the server-information commands. Templates
-must be non-empty, no longer than 2000 characters, and use only balanced,
-supported placeholders:
+The config contains the Discord token and channel ID, six chat and player-event
+templates, and feature toggles for relays and server-information commands.
+These templates must be non-empty, no longer than 2000 characters, and use
+only balanced, supported placeholders:
 
 | Setting | Default | Description |
 | --- | --- | --- |
@@ -133,6 +137,146 @@ supported placeholders:
 | `messages.player-leave` | `🔴 **{player}** left the server.` | `{player}`, `{timestamp}` |
 | `messages.server-status` | `&7Server &8\| &a{online}&7/&f{max} players online` | `{online}`, `{max}` |
 | `messages.player-list` | `&7Online players (&f{online}&7/&f{max}&7): {players}` | `{online}`, `{max}`, `{players}` |
+
+### Death Messages
+
+Death Messages v1 is enabled by default. It classifies player and mob kills,
+falls, lava, fire, drowning, void, explosions, environmental damage, and other
+causes. Minecraft broadcasts use color-aware templates. Discord notifications
+are sent asynchronously as embeds by default; they use the configured
+`death-messages.discord.channel-id`, or `discord.channel-id` when left blank.
+The bot needs **View Channel** and **Send Messages** in the notification
+channel. Discord API requests do not block the Minecraft server thread.
+
+Relevant configuration:
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `death-messages.enabled` | `true` | Master toggle for the death module. |
+| `death-messages.minecraft.enabled` | `true` | Enable Minecraft death announcements. |
+| `death-messages.minecraft.broadcast` | `true` | Broadcast enabled category templates in Minecraft. |
+| `death-messages.discord.enabled` | `true` | Enable Discord death notifications. |
+| `death-messages.discord.channel-id` | `""` | Optional 17-20 digit channel ID; blank uses `discord.channel-id`. |
+| `death-messages.discord.embed` | `true` | Send a Discord embed instead of a plain message. |
+| `death-messages.discord.title` | `☠ Player death` | Embed title; supports `{victim}`, `{killer}`, `{cause}`, `{category}`, and `{message}`. |
+| `death-messages.discord.description` | `{message}\nCategory: {category}\nCause: {cause}` | Embed description; supports the same placeholders. |
+| `death-messages.discord.color` | `#D32F2F` | Six-digit hexadecimal embed color. |
+| `death-messages.categories.<category>` | `true` | Enable or disable `player-kill`, `mob-kill`, `fall`, `lava`, `fire`, `drowning`, `void`, `explosion`, `environmental`, or `other`. |
+| `death-messages.messages.<category>` | See `config.yml` | Category-specific template; supports `{victim}`, `{killer}`, `{cause}`, and `{category}`. |
+
+The template's `{killer}` value is empty for environmental deaths. Discord
+player, mob, and cause values have user-controlled Markdown escaped, and
+notifications disable all parsed mentions. Minecraft's vanilla death message
+is suppressed only when MineBridge emits a configured custom broadcast; if the
+module, Minecraft announcements, or a category is disabled, vanilla handling
+is left intact.
+
+Example:
+
+```yaml
+death-messages:
+  enabled: true
+  minecraft:
+    enabled: true
+    broadcast: true
+  discord:
+    enabled: true
+    channel-id: "123456789012345678"
+    embed: true
+    title: "☠ {victim} died"
+    description: "{message} ({category}: {cause})"
+    color: "#D32F2F"
+  categories:
+    player-kill: true
+    mob-kill: true
+    fall: true
+    lava: true
+    fire: true
+    drowning: true
+    void: true
+    explosion: true
+    environmental: true
+    other: true
+```
+
+An example Minecraft announcement is `☠ Aridro was slain by Zombie`. A
+corresponding Discord embed uses the configured title, description, color,
+victim, killer, category, and cause.
+
+New defaults are merged into existing configurations when reloaded. Use
+`/minebridge reload` after editing these settings; reload does not register
+additional death listeners.
+
+### Achievement Announcements
+
+MineBridge announces completed advancements using Bukkit's
+`PlayerAdvancementDoneEvent`. The advancement's display supplies its title and
+description; the key identifies Story, Nether, End, Adventure, Husbandry, or
+Other. Display type distinguishes challenges from tasks and goals. Advancements
+without a display are ignored because they have no announcement title or
+description. Repeated player/advancement events are deduplicated for 10 seconds
+using a bounded in-memory cache.
+
+Minecraft messages use separate normal and challenge templates, while Discord
+embeds include the player, advancement title, description, category, and type.
+Discord requests are submitted asynchronously through the existing JDA client;
+the chosen channel is `achievements.discord.channel-id`, or
+`discord.channel-id` when blank. Dynamic text is Markdown-escaped and Discord
+mentions are disabled.
+
+The Spigot `PlayerAdvancementDoneEvent` is not cancellable, so Bukkit does not
+provide a per-advancement way to suppress Minecraft's built-in announcement.
+If the `announceAdvancements` gamerule is enabled, the server may show its
+vanilla line alongside MineBridge's configured message. Set
+`/gamerule announceAdvancements false` in each world where only MineBridge
+announcements should appear. MineBridge does not change this server-wide gamerule.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `achievements.enabled` | `true` | Master achievement announcement toggle. |
+| `achievements.minecraft.enabled` | `true` | Send Minecraft chat announcements. |
+| `achievements.discord.enabled` | `true` | Send Discord embeds. |
+| `achievements.challenges.enabled` | `true` | Include completed challenge advancements. |
+| `achievements.categories.<category>` | `true` | Toggle `story`, `nether`, `end`, `adventure`, `husbandry`, or `other`. |
+| `achievements.messages.normal` | `&a✦ {player} has made the advancement [{title}]!` | Minecraft template for non-challenges. |
+| `achievements.messages.challenge` | `&6🏆 {player} has completed the challenge [{title}]!` | Minecraft template for challenges. |
+| `achievements.discord.channel-id` | `""` | Optional Discord text channel ID; blank uses the main configured channel. |
+| `achievements.discord.title` | `✦ {challenge} unlocked` | Discord embed title template. |
+| `achievements.discord.description` | `{description}` | Discord embed description template. |
+| `achievements.discord.color` | `#43A047` | Six-digit hexadecimal embed color. |
+
+Templates support `{player}`, `{title}`, `{description}`, `{category}`, and
+`{challenge}`. The challenge placeholder is `Challenge` or `Advancement`.
+Example configuration:
+
+```yaml
+achievements:
+  enabled: true
+  minecraft:
+    enabled: true
+  discord:
+    enabled: true
+    channel-id: ""
+    title: "🏆 {challenge}: {title}"
+    description: "{description}"
+    color: "#43A047"
+  challenges:
+    enabled: true
+  categories:
+    story: true
+    nether: true
+    end: true
+    adventure: true
+    husbandry: true
+    other: true
+  messages:
+    normal: "&a✦ {player} has made the advancement [{title}]!"
+    challenge: "&6🏆 {player} has completed the challenge [{title}]!"
+```
+
+For example, the Minecraft chat message can be `✦ Aridro has made the
+advancement [Stone Age]!`; a challenge can appear as `🏆 Aridro has completed
+the challenge [Cover Me in Debris]!`.
 
 `{timestamp}` is UTC ISO-8601 and is inserted only when present in a template.
 For Discord messages, `{player}` remains the effective author name used by

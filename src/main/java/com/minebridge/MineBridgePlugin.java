@@ -1,7 +1,11 @@
 package com.minebridge;
 
 import com.minebridge.command.MineBridgeCommand;
+import com.minebridge.achievement.AdvancementAnnouncementManager;
+import com.minebridge.achievement.AdvancementListener;
 import com.minebridge.config.ConfigManager;
+import com.minebridge.death.DeathListener;
+import com.minebridge.death.DeathMessageManager;
 import com.minebridge.discord.DiscordService;
 import com.minebridge.discord.ReloadResult;
 import com.minebridge.listener.ChatListener;
@@ -44,6 +48,15 @@ public final class MineBridgePlugin extends JavaPlugin {
 
         getServer().getPluginManager().registerEvents(
                 new PlayerEventListener(discordService, configManager), this);
+
+        getServer().getPluginManager().registerEvents(
+                new DeathListener(new DeathMessageManager(this, configManager, discordService)),
+                this);
+
+        getServer().getPluginManager().registerEvents(
+                new AdvancementListener(new AdvancementAnnouncementManager(
+                        this, configManager, discordService)),
+                this);
 
         PluginCommand command = getCommand("minebridge");
         if (command != null) {

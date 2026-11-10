@@ -83,7 +83,7 @@ public final class RelayMessageFormatter {
                 .replaceAll("@\u200B$1");
     }
 
-    private static String escapeDiscordUserText(String input) {
+    public static String escapeDiscordUserText(String input) {
         String sanitized = sanitizeText(input);
         String markdownEscaped = DISCORD_MARKDOWN.matcher(sanitized)
                 .replaceAll("\\\\$1");

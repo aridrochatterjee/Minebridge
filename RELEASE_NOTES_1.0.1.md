@@ -1,7 +1,7 @@
-# MineBridge 1.0.1 (Draft)
+# MineBridge 1.0.1
 
-This draft summarizes the stabilization changes intended for MineBridge 1.0.1.
-The project version has not yet been changed.
+Historical release notes for MineBridge 1.0.1. For the combined Death Messages
+and Achievement Announcements release, see [RELEASE_NOTES_1.2.0.md](./RELEASE_NOTES_1.2.0.md).
 
 ## Reliability improvements
 

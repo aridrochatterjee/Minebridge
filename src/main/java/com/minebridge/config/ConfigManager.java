@@ -1,6 +1,8 @@
 package com.minebridge.config;
 
 import com.minebridge.MineBridgePlugin;
+import com.minebridge.achievement.AdvancementCategory;
+import com.minebridge.death.DeathCategory;
 import org.bukkit.ChatColor;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.InvalidConfigurationException;
@@ -42,10 +44,20 @@ public final class ConfigManager {
             "messages.server-status", "&7Server &8| &a{online}&7/&f{max} players online",
             "messages.player-list",
             "&7Online players (&f{online}&7/&f{max}&7): {players}");
+    private static final Set<String> DEATH_PLACEHOLDERS =
+            Set.of("victim", "killer", "cause", "category");
+    private static final Set<String> DEATH_EMBED_PLACEHOLDERS =
+            Set.of("victim", "killer", "cause", "category", "message");
+    private static final Set<String> ACHIEVEMENT_PLACEHOLDERS =
+            Set.of("player", "title", "description", "category", "challenge");
+    private static final Map<String, String> DEFAULT_ACHIEVEMENT_MESSAGES = Map.of(
+            "normal", "&a✦ {player} has made the advancement [{title}]!",
+            "challenge", "&6🏆 {player} has completed the challenge [{title}]!");
 
     private final MineBridgePlugin plugin;
     private volatile Settings settings = new Settings(
-            "", "", true, true, SAFE_MESSAGES);
+            "", "", true, true, SAFE_MESSAGES, true, true,
+            defaultDeathSettings(), defaultAchievementSettings());
 
     public record Settings(
             String botToken,
@@ -54,7 +66,9 @@ public final class ConfigManager {
             boolean eventsEnabled,
             Map<String, String> messages,
             boolean serverStatusEnabled,
-            boolean playerListEnabled) {
+            boolean playerListEnabled,
+            DeathSettings deathMessages,
+            AchievementSettings achievements) {
         public Settings {
             messages = Map.copyOf(messages);
         }
@@ -64,8 +78,73 @@ public final class ConfigManager {
                 String channelId,
                 boolean chatEnabled,
                 boolean eventsEnabled,
+                Map<String, String> messages,
+                boolean serverStatusEnabled,
+                boolean playerListEnabled) {
+            this(botToken, channelId, chatEnabled, eventsEnabled, messages,
+                    serverStatusEnabled, playerListEnabled,
+                    defaultDeathSettings(), defaultAchievementSettings());
+        }
+
+        public Settings(
+                String botToken,
+                String channelId,
+                boolean chatEnabled,
+                boolean eventsEnabled,
+                Map<String, String> messages,
+                boolean serverStatusEnabled,
+                boolean playerListEnabled,
+                DeathSettings deathMessages) {
+            this(botToken, channelId, chatEnabled, eventsEnabled, messages,
+                    serverStatusEnabled, playerListEnabled,
+                    deathMessages, defaultAchievementSettings());
+        }
+
+        public Settings(
+                String botToken,
+                String channelId,
+                boolean chatEnabled,
+                boolean eventsEnabled,
                 Map<String, String> messages) {
-            this(botToken, channelId, chatEnabled, eventsEnabled, messages, true, true);
+            this(botToken, channelId, chatEnabled, eventsEnabled, messages,
+                    true, true, defaultDeathSettings(), defaultAchievementSettings());
+        }
+    }
+
+    public record DeathSettings(
+            boolean enabled,
+            boolean minecraftEnabled,
+            boolean minecraftBroadcast,
+            boolean discordEnabled,
+            boolean embedEnabled,
+            String discordChannelId,
+            String embedTitle,
+            String embedDescription,
+            int embedColor,
+            Map<String, Boolean> categories,
+            Map<String, String> messages) {
+        public DeathSettings {
+            discordChannelId = discordChannelId == null ? "" : discordChannelId;
+            categories = Map.copyOf(categories);
+            messages = Map.copyOf(messages);
+        }
+    }
+
+    public record AchievementSettings(
+            boolean enabled,
+            boolean minecraftEnabled,
+            boolean discordEnabled,
+            boolean challengesEnabled,
+            String discordChannelId,
+            String messageTemplate,
+            String challengeMessageTemplate,
+            String embedTitle,
+            String embedDescription,
+            int embedColor,
+            Map<String, Boolean> categories) {
+        public AchievementSettings {
+            discordChannelId = discordChannelId == null ? "" : discordChannelId;
+            categories = Map.copyOf(categories);
         }
     }
 
@@ -117,6 +196,8 @@ public final class ConfigManager {
         Boolean playerListEnabled =
                 playerListValue instanceof Boolean value ? value : null;
 
+        DeathSettings deathMessages = readDeathSettings(configuration, errors);
+        AchievementSettings achievements = readAchievementSettings(configuration, errors);
         Map<String, String> messages = new java.util.HashMap<>();
         Map<String, Object> messageValues = new java.util.HashMap<>();
         for (String key : MESSAGE_KEYS) {
@@ -138,7 +219,9 @@ public final class ConfigManager {
                     eventsEnabled,
                     Map.copyOf(messages),
                     serverStatusEnabled,
-                    playerListEnabled), List.of());
+                    playerListEnabled,
+                    deathMessages,
+                    achievements), List.of());
         }
         return new Candidate(null, errors);
     }
@@ -213,9 +296,84 @@ public final class ConfigManager {
         return List.copyOf(errors);
     }
 
+    public static List<String> validateDeathMessageTemplates(Map<String, ?> templates) {
+        List<String> errors = new ArrayList<>();
+        for (DeathCategory category : DeathCategory.values()) {
+            validateDeathTemplate(
+                    "death-messages.messages." + category.key(),
+                    templates.get(category.key()),
+                    DEATH_PLACEHOLDERS,
+                    2000,
+                    errors);
+        }
+        validateDeathTemplate(
+                "death-messages.discord.title",
+                templates.get("discord.title"),
+                DEATH_EMBED_PLACEHOLDERS,
+                256,
+                errors);
+        validateDeathTemplate(
+                "death-messages.discord.description",
+                templates.get("discord.description"),
+                DEATH_EMBED_PLACEHOLDERS,
+                4096,
+                errors);
+        return List.copyOf(errors);
+    }
+
+    public static List<String> validateAchievementTemplates(Map<String, ?> templates) {
+        List<String> errors = new ArrayList<>();
+        validateDeathTemplate(
+                "achievements.messages.normal",
+                templates.get("normal"),
+                ACHIEVEMENT_PLACEHOLDERS,
+                2000,
+                errors);
+        validateDeathTemplate(
+                "achievements.messages.challenge",
+                templates.get("challenge"),
+                ACHIEVEMENT_PLACEHOLDERS,
+                2000,
+                errors);
+        validateDeathTemplate(
+                "achievements.discord.title",
+                templates.get("discord.title"),
+                ACHIEVEMENT_PLACEHOLDERS,
+                256,
+                errors);
+        validateDeathTemplate(
+                "achievements.discord.description",
+                templates.get("discord.description"),
+                ACHIEVEMENT_PLACEHOLDERS,
+                4096,
+                errors);
+        return List.copyOf(errors);
+    }
+
+    private static void validateDeathTemplate(
+            String key,
+            Object value,
+            Set<String> allowed,
+            int maxLength,
+            List<String> errors) {
+        if (!(value instanceof String template)) {
+            errors.add(key + " must be a string.");
+        } else if (template.isBlank()) {
+            errors.add(key + " must not be empty.");
+        } else if (template.length() > maxLength) {
+            errors.add(key + " exceeds the " + maxLength + "-character limit.");
+        } else {
+            validateTemplatePlaceholders(key, template, allowed, errors);
+        }
+    }
+
     private static void validateTemplatePlaceholders(
             String key, String template, List<String> errors) {
-        Set<String> allowed = MESSAGE_PLACEHOLDERS.get(key);
+        validateTemplatePlaceholders(key, template, MESSAGE_PLACEHOLDERS.get(key), errors);
+    }
+
+    private static void validateTemplatePlaceholders(
+            String key, String template, Set<String> allowed, List<String> errors) {
         for (int index = 0; index < template.length();) {
             char current = template.charAt(index);
             if (current == '}') {
@@ -240,6 +398,260 @@ public final class ConfigManager {
             }
             index = closingBrace + 1;
         }
+    }
+
+    private static DeathSettings readDeathSettings(
+            ConfigurationSection configuration, List<String> errors) {
+        Object sectionValue = configuration.get("death-messages");
+        if (sectionValue != null && !(sectionValue instanceof ConfigurationSection)) {
+            errors.add("death-messages must be a configuration section.");
+            return defaultDeathSettings();
+        }
+        for (String section : List.of("minecraft", "discord", "categories", "messages")) {
+            Object value = configuration.get("death-messages." + section);
+            if (value != null && !(value instanceof ConfigurationSection)) {
+                errors.add("death-messages." + section + " must be a configuration section.");
+            }
+        }
+
+        Map<String, Boolean> categories = new java.util.HashMap<>();
+        for (DeathCategory category : DeathCategory.values()) {
+            String path = "death-messages.categories." + category.key();
+            categories.put(category.key(), readBoolean(
+                    configuration, path, true, errors));
+        }
+
+        Map<String, String> messages = new java.util.HashMap<>();
+        Map<String, Object> templates = new java.util.HashMap<>();
+        for (DeathCategory category : DeathCategory.values()) {
+            String key = category.key();
+            String path = "death-messages.messages." + key;
+            String value = readStringOrDefault(
+                    configuration, path, defaultDeathMessage(key), errors);
+            messages.put(key, value);
+            templates.put(key, value);
+        }
+
+        String title = readStringOrDefault(
+                configuration,
+                "death-messages.discord.title",
+                "☠ Player death",
+                errors);
+        String description = readStringOrDefault(
+                configuration,
+                "death-messages.discord.description",
+                "{message}\nCategory: {category}\nCause: {cause}",
+                errors);
+        templates.put("discord.title", title);
+        templates.put("discord.description", description);
+        errors.addAll(validateDeathMessageTemplates(templates));
+
+        String deathChannelId = readStringOrDefault(
+                configuration, "death-messages.discord.channel-id", "", errors);
+        if (!deathChannelId.isBlank() && !isValidChannelId(deathChannelId)) {
+            errors.add(
+                    "death-messages.discord.channel-id must be a 17-20 digit Discord channel ID.");
+        }
+
+        Object colorValue = configuration.get("death-messages.discord.color");
+        String color = colorValue == null ? "#D32F2F"
+                : colorValue instanceof String stringValue ? stringValue : null;
+        int embedColor = 0xD32F2F;
+        if (color == null) {
+            errors.add("death-messages.discord.color must be a six-digit hex color string.");
+        } else {
+            String normalized = color.startsWith("#") ? color.substring(1) : color;
+            if (!normalized.matches("[0-9a-fA-F]{6}")) {
+                errors.add("death-messages.discord.color must be a six-digit hex color string.");
+            } else {
+                embedColor = Integer.parseInt(normalized, 16);
+            }
+        }
+
+        return new DeathSettings(
+                readBoolean(configuration, "death-messages.enabled", true, errors),
+                readBoolean(configuration, "death-messages.minecraft.enabled", true, errors),
+                readBoolean(configuration, "death-messages.minecraft.broadcast", true, errors),
+                readBoolean(configuration, "death-messages.discord.enabled", true, errors),
+                readBoolean(configuration, "death-messages.discord.embed", true, errors),
+                deathChannelId,
+                title,
+                description,
+                embedColor,
+                categories,
+                messages);
+    }
+
+    private static AchievementSettings readAchievementSettings(
+            ConfigurationSection configuration, List<String> errors) {
+        Object sectionValue = configuration.get("achievements");
+        if (sectionValue != null && !(sectionValue instanceof ConfigurationSection)) {
+            errors.add("achievements must be a configuration section.");
+            return defaultAchievementSettings();
+        }
+        for (String section : List.of("minecraft", "discord", "categories", "messages", "challenges")) {
+            Object value = configuration.get("achievements." + section);
+            if (value != null && !(value instanceof ConfigurationSection)) {
+                errors.add("achievements." + section + " must be a configuration section.");
+            }
+        }
+
+        Map<String, Boolean> categories = new java.util.HashMap<>();
+        for (AdvancementCategory category : AdvancementCategory.values()) {
+            categories.put(
+                    category.key(),
+                    readBoolean(
+                            configuration,
+                            "achievements.categories." + category.key(),
+                            true,
+                            errors));
+        }
+
+        String normalMessage = readStringOrDefault(
+                configuration,
+                "achievements.messages.normal",
+                DEFAULT_ACHIEVEMENT_MESSAGES.get("normal"),
+                errors);
+        String challengeMessage = readStringOrDefault(
+                configuration,
+                "achievements.messages.challenge",
+                DEFAULT_ACHIEVEMENT_MESSAGES.get("challenge"),
+                errors);
+        String title = readStringOrDefault(
+                configuration,
+                "achievements.discord.title",
+                "✦ Advancement unlocked",
+                errors);
+        String description = readStringOrDefault(
+                configuration,
+                "achievements.discord.description",
+                "{description}",
+                errors);
+        errors.addAll(validateAchievementTemplates(Map.of(
+                "normal", normalMessage,
+                "challenge", challengeMessage,
+                "discord.title", title,
+                "discord.description", description)));
+
+        String channelId = readStringOrDefault(
+                configuration, "achievements.discord.channel-id", "", errors);
+        if (!channelId.isBlank() && !isValidChannelId(channelId)) {
+            errors.add("achievements.discord.channel-id must be a 17-20 digit Discord channel ID.");
+        }
+
+        Object colorValue = configuration.get("achievements.discord.color");
+        String color = colorValue == null ? "#43A047"
+                : colorValue instanceof String stringValue ? stringValue : null;
+        int embedColor = 0x43A047;
+        if (color == null) {
+            errors.add("achievements.discord.color must be a six-digit hex color string.");
+        } else {
+            String normalized = color.startsWith("#") ? color.substring(1) : color;
+            if (!normalized.matches("[0-9a-fA-F]{6}")) {
+                errors.add("achievements.discord.color must be a six-digit hex color string.");
+            } else {
+                embedColor = Integer.parseInt(normalized, 16);
+            }
+        }
+
+        return new AchievementSettings(
+                readBoolean(configuration, "achievements.enabled", true, errors),
+                readBoolean(configuration, "achievements.minecraft.enabled", true, errors),
+                readBoolean(configuration, "achievements.discord.enabled", true, errors),
+                readBoolean(configuration, "achievements.challenges.enabled", true, errors),
+                channelId,
+                normalMessage,
+                challengeMessage,
+                title,
+                description,
+                embedColor,
+                categories);
+    }
+
+    private static boolean readBoolean(
+            ConfigurationSection configuration,
+            String path,
+            boolean defaultValue,
+            List<String> errors) {
+        Object value = configuration.get(path);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Boolean booleanValue) {
+            return booleanValue;
+        }
+        errors.add(path + " must be true or false.");
+        return defaultValue;
+    }
+
+    private static String readStringOrDefault(
+            ConfigurationSection configuration,
+            String path,
+            String defaultValue,
+            List<String> errors) {
+        Object value = configuration.get(path);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof String stringValue) {
+            return stringValue;
+        }
+        errors.add(path + " must be a string.");
+        return defaultValue;
+    }
+
+    private static DeathSettings defaultDeathSettings() {
+        Map<String, Boolean> categories = new java.util.HashMap<>();
+        Map<String, String> messages = new java.util.HashMap<>();
+        for (DeathCategory category : DeathCategory.values()) {
+            categories.put(category.key(), true);
+            messages.put(category.key(), defaultDeathMessage(category.key()));
+        }
+        return new DeathSettings(
+                true,
+                true,
+                true,
+                true,
+                true,
+                "",
+                "☠ Player death",
+                "{message}\nCategory: {category}\nCause: {cause}",
+                0xD32F2F,
+                categories,
+                messages);
+    }
+
+    private static AchievementSettings defaultAchievementSettings() {
+        Map<String, Boolean> categories = new java.util.HashMap<>();
+        for (AdvancementCategory category : AdvancementCategory.values()) {
+            categories.put(category.key(), true);
+        }
+        return new AchievementSettings(
+                true,
+                true,
+                true,
+                true,
+                "",
+                DEFAULT_ACHIEVEMENT_MESSAGES.get("normal"),
+                DEFAULT_ACHIEVEMENT_MESSAGES.get("challenge"),
+                "✦ Advancement unlocked",
+                "{description}",
+                0x43A047,
+                categories);
+    }
+
+    private static String defaultDeathMessage(String category) {
+        return switch (category) {
+            case "player-kill", "mob-kill" -> "&c☠ {victim} was slain by {killer}";
+            case "fall" -> "&c☠ {victim} fell to their death";
+            case "lava" -> "&c☠ {victim} tried to swim in lava";
+            case "fire" -> "&c☠ {victim} burned to death";
+            case "drowning" -> "&c☠ {victim} drowned";
+            case "void" -> "&c☠ {victim} fell out of the world";
+            case "explosion" -> "&c☠ {victim} died in an explosion";
+            case "environmental" -> "&c☠ {victim} died from {cause}";
+            default -> "&c☠ {victim} died";
+        };
     }
 
     public static boolean isValidBotToken(String token) {
